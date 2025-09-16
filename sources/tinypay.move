@@ -12,6 +12,7 @@ module tinypay::tinypay {
     use aptos_framework::account::{Self, SignerCapability};
     use std::bcs;
     use std::vector;
+    use std::hash;
 
     // Error codes
     /// 余额不足
@@ -84,9 +85,6 @@ module tinypay::tinypay {
     struct PreCommitMade has drop, store {
         merchant_address: address,
         commit_hash: String,
-        payer: address,
-        recipient: address,
-        amount: u64,
         expiry_time: u64
     }
 
@@ -170,25 +168,6 @@ module tinypay::tinypay {
         coin::register<AptosCoin>(&resource_signer);
     }
 
-    /// Initialize user account
-    public entry fun initialize_account(user: &signer) {
-        let user_addr = signer::address_of(user);
-        assert!(!exists<UserAccount>(user_addr), E_ACCOUNT_NOT_INITIALIZED);
-
-        move_to(
-            user,
-            UserAccount {
-                balance: 0,
-                tail: string::utf8(b""), // 初始tail为空
-                payment_limit: 0, // 0表示无限制
-                tail_update_count: 0,
-                max_tail_updates: 0 // 0表示无限制
-            }
-        );
-
-        event::emit(AccountInitialized { user_address: user_addr });
-    }
-
     /// Deposit APT into user's TinyPay account with tail hash
     /// Auto-initializes user account if it doesn't exist
     public entry fun deposit(user: &signer, amount: u64, tail: String) acquires UserAccount, TinyPayState {
@@ -270,73 +249,57 @@ module tinypay::tinypay {
     }
 
     /// Merchant submits pre-commit for payment (Phase 1)
+    /// Client should pre-compute hash of (payer, recipient, amount, timestamp)
     public entry fun merchant_precommit(
         merchant: &signer,
-        payer: address,
-        recipient: address,
-        amount: u64
+        commit_hash: String
     ) acquires TinyPayState {
-        assert!(amount > 0, E_INVALID_AMOUNT);
-        assert!(exists<UserAccount>(payer), E_ACCOUNT_NOT_INITIALIZED);
-
-        // Generate hash of parameters for pre-commit
-        let params_bytes = vector::empty<u8>();
-        let payer_bytes = bcs::to_bytes(&payer);
-        let recipient_bytes = bcs::to_bytes(&recipient);
-        let amount_bytes = bcs::to_bytes(&amount);
-
-        params_bytes.append(payer_bytes);
-        params_bytes.append(recipient_bytes);
-        params_bytes.append(amount_bytes);
-
-        // Create a simple string hash for commit_hash instead of using crypto hash
-        let commit_hash = string::utf8(b"commit_");
-        commit_hash.append(string::utf8(bcs::to_bytes(&timestamp::now_seconds())));
-
+        let merchant_addr = signer::address_of(merchant);
+        
         // Store pre-commit with 15 minutes expiry
         let expiry_time = timestamp::now_seconds() + 900; // 15 minutes
-        let precommit = PreCommit { merchant: signer::address_of(merchant), expiry_time };
+        let precommit = PreCommit { merchant: merchant_addr, expiry_time };
 
         let state = borrow_global_mut<TinyPayState>(@tinypay);
         state.precommits.add(commit_hash, precommit);
 
-        let merchant_addr = signer::address_of(merchant);
         event::emit(
             PreCommitMade {
                 merchant_address: merchant_addr,
                 commit_hash,
-                payer,
-                recipient,
-                amount,
                 expiry_time
             }
         );
     }
 
-    /// User completes payment with opt value (Phase 2)
+    /// User completes payment with opt value (Phase 2)  
+    /// Contract verifies payment parameters hash and opt against user's tail
     public entry fun complete_payment(
         user: &signer,
         opt: String,
-        payer: address,
         recipient: address,
-        amount: u64
+        amount: u64,
+        commit_hash: String // The hash from precommit phase
     ) acquires UserAccount, TinyPayState {
         let user_addr = signer::address_of(user);
-        assert!(user_addr == payer, E_ACCOUNT_NOT_INITIALIZED);
-        assert!(exists<UserAccount>(payer), E_ACCOUNT_NOT_INITIALIZED);
+        assert!(exists<UserAccount>(user_addr), E_ACCOUNT_NOT_INITIALIZED);
 
-        // Generate hash of parameters to verify pre-commit
+        // Calculate hash of payment parameters to verify against commit_hash
         let params_bytes = vector::empty<u8>();
-        let payer_bytes = bcs::to_bytes(&payer);
+        let payer_bytes = bcs::to_bytes(&user_addr);
         let recipient_bytes = bcs::to_bytes(&recipient);
         let amount_bytes = bcs::to_bytes(&amount);
-
+        
         params_bytes.append(payer_bytes);
         params_bytes.append(recipient_bytes);
         params_bytes.append(amount_bytes);
-
-        let commit_hash = string::utf8(b"commit_");
-        // Note: In real implementation, would use proper hash verification
+        
+        // Generate SHA256 hash of parameters
+        let computed_hash_bytes = hash::sha2_256(params_bytes);
+        let computed_hash = string::utf8(computed_hash_bytes);
+        
+        // Verify computed hash matches the provided commit_hash
+        assert!(computed_hash == commit_hash, E_INVALID_PRECOMMIT);
 
         // Verify pre-commit exists and is valid
         let state = borrow_global_mut<TinyPayState>(@tinypay);
@@ -344,11 +307,14 @@ module tinypay::tinypay {
 
         let precommit = state.precommits.remove(commit_hash);
         assert!(timestamp::now_seconds() <= precommit.expiry_time, E_INVALID_PRECOMMIT);
-        assert!(payer == precommit.merchant, E_INVALID_PRECOMMIT);
 
-        // Verify hash(opt) == tail
-        let user_account = borrow_global_mut<UserAccount>(payer);
-        // Note: In real implementation, would verify hash(opt) == user_account.tail
+        // Verify hash(opt) == tail using SHA256
+        let user_account = borrow_global_mut<UserAccount>(user_addr);
+        let opt_bytes = bcs::to_bytes(&opt);
+        let opt_hash_bytes = hash::sha2_256(opt_bytes);
+        let opt_hash = string::utf8(opt_hash_bytes);
+        assert!(opt_hash == user_account.tail, E_INVALID_OPT);
+        
         assert!(user_account.balance >= amount, E_INSUFFICIENT_BALANCE);
 
         // Check payment limit
@@ -380,7 +346,7 @@ module tinypay::tinypay {
 
         event::emit(
             PaymentCompleted {
-                payer,
+                payer: user_addr,
                 recipient,
                 amount,
                 fee,
