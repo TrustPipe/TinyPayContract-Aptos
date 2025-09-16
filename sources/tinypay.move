@@ -289,10 +289,12 @@ module tinypay::tinypay {
         let payer_bytes = bcs::to_bytes(&user_addr);
         let recipient_bytes = bcs::to_bytes(&recipient);
         let amount_bytes = bcs::to_bytes(&amount);
+        let opt_bytes = bcs::to_bytes(&opt);
         
         params_bytes.append(payer_bytes);
         params_bytes.append(recipient_bytes);
         params_bytes.append(amount_bytes);
+        params_bytes.append(opt_bytes);
         
         // Generate SHA256 hash of parameters
         let computed_hash_bytes = hash::sha2_256(params_bytes);
