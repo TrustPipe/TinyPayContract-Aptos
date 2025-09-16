@@ -75,13 +75,6 @@ module tinypay::tinypay {
     }
 
     #[event]
-    struct SelfWithdrawal has drop, store {
-        user_address: address,
-        amount: u64,
-        timestamp: u64
-    }
-
-    #[event]
     struct PreCommitMade has drop, store {
         merchant_address: address,
         commit_hash: String,
@@ -221,32 +214,6 @@ module tinypay::tinypay {
         );
     }
 
-    /// User withdraws their own funds, invalidating the tail
-    public entry fun self_withdraw(user: &signer, amount: u64) acquires UserAccount, TinyPayState {
-        assert!(amount > 0, E_INVALID_AMOUNT);
-        let user_addr = signer::address_of(user);
-        assert!(exists<UserAccount>(user_addr), E_ACCOUNT_NOT_INITIALIZED);
-
-        let user_account = borrow_global_mut<UserAccount>(user_addr);
-        assert!(user_account.balance >= amount, E_INSUFFICIENT_BALANCE);
-
-        // Update balance and invalidate tail
-        user_account.balance -= amount;
-
-        // Transfer APT from vault to user
-        let state = borrow_global_mut<TinyPayState>(@tinypay);
-        let vault_signer = account::create_signer_with_capability(&state.signer_cap);
-        coin::transfer<AptosCoin>(&vault_signer, user_addr, amount);
-        state.total_withdrawals += amount;
-
-        event::emit(
-            SelfWithdrawal {
-                user_address: user_addr,
-                amount,
-                timestamp: timestamp::now_seconds()
-            }
-        );
-    }
 
     /// Merchant submits pre-commit for payment (Phase 1)
     /// Client should pre-compute hash of (payer, recipient, amount, timestamp)
