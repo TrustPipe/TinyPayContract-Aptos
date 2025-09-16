@@ -3,7 +3,7 @@
 /// and enables merchants to redeem those vouchers for APT withdrawals.
 module tinypay::tinypay {
     use std::signer;
-    use std::string::{Self, String};
+    // String module no longer needed since we use vector<u8> for hashes
     use aptos_std::table::{Self, Table};
     use aptos_framework::coin;
     use aptos_framework::aptos_coin::AptosCoin;
@@ -37,7 +37,7 @@ module tinypay::tinypay {
     /// User account information storing balance and tail
     struct UserAccount has key {
         balance: u64, // Available APT balance in octas
-        tail: String, // Current tail hash value
+        tail: vector<u8>, // Current tail hash value (SHA256 bytes)
         payment_limit: u64, // Maximum payment amount per transaction (0 = unlimited)
         tail_update_count: u64, // Number of times tail has been updated
         max_tail_updates: u64 // Maximum allowed tail updates (0 = unlimited)
@@ -56,7 +56,7 @@ module tinypay::tinypay {
         fee_rate: u64, // Fee rate in basis points (e.g., 100 = 1%)
         admin: address, // Administrator address
         signer_cap: SignerCapability, // Signer capability for transfers
-        precommits: Table<String, PreCommit> // Pre-commit记录，key为参数的hash
+        precommits: Table<vector<u8>, PreCommit> // Pre-commit记录，key为参数的hash
     }
 
     // Events
@@ -69,7 +69,7 @@ module tinypay::tinypay {
     struct DepositMade has drop, store {
         user_address: address,
         amount: u64,
-        tail: String,
+        tail: vector<u8>,
         new_balance: u64,
         timestamp: u64
     }
@@ -77,7 +77,7 @@ module tinypay::tinypay {
     #[event]
     struct PreCommitMade has drop, store {
         merchant_address: address,
-        commit_hash: String,
+        commit_hash: vector<u8>,
         expiry_time: u64
     }
 
@@ -87,7 +87,7 @@ module tinypay::tinypay {
         recipient: address,
         amount: u64,
         fee: u64,
-        new_tail: String,
+        new_tail: vector<u8>,
         timestamp: u64
     }
 
@@ -110,8 +110,8 @@ module tinypay::tinypay {
     #[event]
     struct TailRefreshed has drop, store {
         user_address: address,
-        old_tail: String,
-        new_tail: String,
+        old_tail: vector<u8>,
+        new_tail: vector<u8>,
         tail_update_count: u64,
         timestamp: u64
     }
@@ -163,7 +163,7 @@ module tinypay::tinypay {
 
     /// Deposit APT into user's TinyPay account with tail hash
     /// Auto-initializes user account if it doesn't exist
-    public entry fun deposit(user: &signer, amount: u64, tail: String) acquires UserAccount, TinyPayState {
+    public entry fun deposit(user: &signer, amount: u64, tail: vector<u8>) acquires UserAccount, TinyPayState {
         assert!(amount > 0, E_INVALID_AMOUNT);
         let user_addr = signer::address_of(user);
 
@@ -173,7 +173,7 @@ module tinypay::tinypay {
                 user,
                 UserAccount {
                     balance: 0,
-                    tail: string::utf8(b""), // 初始tail为空
+                    tail: vector::empty<u8>(), // 初始tail为空
                     payment_limit: 0, // 0表示无限制
                     tail_update_count: 0,
                     max_tail_updates: 0 // 0表示无限制
@@ -219,7 +219,7 @@ module tinypay::tinypay {
     /// Client should pre-compute hash of (payer, recipient, amount, timestamp)
     public entry fun merchant_precommit(
         merchant: &signer,
-        commit_hash: String
+        commit_hash: vector<u8>
     ) acquires TinyPayState {
         let merchant_addr = signer::address_of(merchant);
         
@@ -243,10 +243,10 @@ module tinypay::tinypay {
     /// Contract verifies payment parameters hash and opt against user's tail
     public entry fun complete_payment(
         user: &signer,
-        opt: String,
+        opt: vector<u8>,
         recipient: address,
         amount: u64,
-        commit_hash: String // The hash from precommit phase
+        commit_hash: vector<u8> // The hash from precommit phase
     ) acquires UserAccount, TinyPayState {
         let user_addr = signer::address_of(user);
         assert!(exists<UserAccount>(user_addr), E_ACCOUNT_NOT_INITIALIZED);
@@ -265,10 +265,9 @@ module tinypay::tinypay {
         
         // Generate SHA256 hash of parameters
         let computed_hash_bytes = hash::sha2_256(params_bytes);
-        let computed_hash = string::utf8(computed_hash_bytes);
         
         // Verify computed hash matches the provided commit_hash
-        assert!(computed_hash == commit_hash, E_INVALID_PRECOMMIT);
+        assert!(computed_hash_bytes == commit_hash, E_INVALID_PRECOMMIT);
 
         // Verify pre-commit exists and is valid
         let state = borrow_global_mut<TinyPayState>(@tinypay);
@@ -281,8 +280,7 @@ module tinypay::tinypay {
         let user_account = borrow_global_mut<UserAccount>(user_addr);
         let opt_bytes = bcs::to_bytes(&opt);
         let opt_hash_bytes = hash::sha2_256(opt_bytes);
-        let opt_hash = string::utf8(opt_hash_bytes);
-        assert!(opt_hash == user_account.tail, E_INVALID_OPT);
+        assert!(opt_hash_bytes == user_account.tail, E_INVALID_OPT);
         
         assert!(user_account.balance >= amount, E_INSUFFICIENT_BALANCE);
 
@@ -364,7 +362,7 @@ module tinypay::tinypay {
     }
 
     /// User function to refresh tail (update tail and increment count)
-    public entry fun refresh_tail(user: &signer, new_tail: String) acquires UserAccount {
+    public entry fun refresh_tail(user: &signer, new_tail: vector<u8>) acquires UserAccount {
         let user_addr = signer::address_of(user);
         assert!(exists<UserAccount>(user_addr), E_ACCOUNT_NOT_INITIALIZED);
 
@@ -397,8 +395,8 @@ module tinypay::tinypay {
     /// Auto-initializes user account if it doesn't exist
     /// Implemented as a convenience wrapper around deposit with empty tail
     public entry fun add_funds(user: &signer, amount: u64) acquires UserAccount, TinyPayState {
-        // Call deposit with empty tail string
-        deposit(user, amount, string::utf8(b""));
+        // Call deposit with empty tail vector
+        deposit(user, amount, vector::empty<u8>());
     }
 
     /// User function to withdraw funds back to their wallet
@@ -452,9 +450,9 @@ module tinypay::tinypay {
 
     #[view]
     /// Get user's current tail value
-    public fun get_user_tail(user_address: address): String acquires UserAccount {
+    public fun get_user_tail(user_address: address): vector<u8> acquires UserAccount {
         if (!exists<UserAccount>(user_address)) {
-            return string::utf8(b"")
+            return vector::empty<u8>()
         };
         let user_account = borrow_global<UserAccount>(user_address);
         user_account.tail
