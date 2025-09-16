@@ -200,17 +200,17 @@ module tinypay::tinypay {
 
         // Update user balance and tail
         let user_account = borrow_global_mut<UserAccount>(user_addr);
-        user_account.balance = user_account.balance + amount;
+        user_account.balance += amount;
         
         // Increment tail update count if tail is changing to a non-empty value
-        if (string::length(&tail) > 0 && tail != user_account.tail) {
-            user_account.tail_update_count = user_account.tail_update_count + 1;
+        if (tail.length() > 0 && tail != user_account.tail) {
+            user_account.tail_update_count += 1;
         };
         user_account.tail = tail;
 
         // Update global state
         let state = borrow_global_mut<TinyPayState>(@tinypay);
-        state.total_deposits = state.total_deposits + amount;
+        state.total_deposits += amount;
 
         event::emit(DepositMade {
             user_address: user_addr,
@@ -231,14 +231,14 @@ module tinypay::tinypay {
         assert!(user_account.balance >= amount, E_INSUFFICIENT_BALANCE);
 
         // Update balance and invalidate tail
-        user_account.balance = user_account.balance - amount;
+        user_account.balance -= amount;
         user_account.tail = string::utf8(b""); // Invalidate tail
 
         // Transfer APT from vault to user
         let state = borrow_global_mut<TinyPayState>(@tinypay);
         let vault_signer = account::create_signer_with_capability(&state.signer_cap);
         coin::transfer<AptosCoin>(&vault_signer, user_addr, amount);
-        state.total_withdrawals = state.total_withdrawals + amount;
+        state.total_withdrawals += amount;
 
         event::emit(SelfWithdrawal {
             user_address: user_addr,
@@ -263,13 +263,13 @@ module tinypay::tinypay {
         let recipient_bytes = bcs::to_bytes(&recipient);
         let amount_bytes = bcs::to_bytes(&amount);
         
-        vector::append(&mut params_bytes, payer_bytes);
-        vector::append(&mut params_bytes, recipient_bytes);
-        vector::append(&mut params_bytes, amount_bytes);
+        params_bytes.append(payer_bytes);
+        params_bytes.append(recipient_bytes);
+        params_bytes.append(amount_bytes);
         
         // Create a simple string hash for commit_hash instead of using crypto hash
         let commit_hash = string::utf8(b"commit_");
-        string::append(&mut commit_hash, string::utf8(bcs::to_bytes(&timestamp::now_seconds())));
+        commit_hash.append(string::utf8(bcs::to_bytes(&timestamp::now_seconds())));
 
         // Store pre-commit with 15 minutes expiry
         let expiry_time = timestamp::now_seconds() + 900; // 15 minutes
@@ -281,7 +281,7 @@ module tinypay::tinypay {
         };
 
         let state = borrow_global_mut<TinyPayState>(@tinypay);
-        table::add(&mut state.precommits, commit_hash, precommit);
+        state.precommits.add(commit_hash, precommit);
 
         let merchant_addr = signer::address_of(merchant);
         event::emit(PreCommitMade {
@@ -312,18 +312,18 @@ module tinypay::tinypay {
         let recipient_bytes = bcs::to_bytes(&recipient);
         let amount_bytes = bcs::to_bytes(&amount);
         
-        vector::append(&mut params_bytes, payer_bytes);
-        vector::append(&mut params_bytes, recipient_bytes);
-        vector::append(&mut params_bytes, amount_bytes);
+        params_bytes.append(payer_bytes);
+        params_bytes.append(recipient_bytes);
+        params_bytes.append(amount_bytes);
         
         let commit_hash = string::utf8(b"commit_");
         // Note: In real implementation, would use proper hash verification
 
         // Verify pre-commit exists and is valid
         let state = borrow_global_mut<TinyPayState>(@tinypay);
-        assert!(table::contains(&state.precommits, commit_hash), E_INVALID_PRECOMMIT);
+        assert!(state.precommits.contains(commit_hash), E_INVALID_PRECOMMIT);
         
-        let precommit = table::remove(&mut state.precommits, commit_hash);
+        let precommit = state.precommits.remove(commit_hash);
         assert!(timestamp::now_seconds() <= precommit.expiry_time, E_INVALID_PRECOMMIT);
         assert!(payer == precommit.payer, E_INVALID_PRECOMMIT);
         assert!(recipient == precommit.recipient, E_INVALID_PRECOMMIT);
@@ -349,14 +349,14 @@ module tinypay::tinypay {
         let recipient_amount = amount - fee;
 
         // Update user balance and tail
-        user_account.balance = user_account.balance - amount; // Subtract amount from payer
+        user_account.balance -= amount; // Subtract amount from payer
         user_account.tail = opt; // Update tail to opt
-        user_account.tail_update_count = user_account.tail_update_count + 1;
+        user_account.tail_update_count += 1;
 
         // Transfer APT to recipient
         let vault_signer = account::create_signer_with_capability(&state.signer_cap);
         coin::transfer<AptosCoin>(&vault_signer, recipient, recipient_amount);
-        state.total_withdrawals = state.total_withdrawals + amount;
+        state.total_withdrawals += amount;
 
         event::emit(PaymentCompleted {
             payer,
@@ -416,7 +416,7 @@ module tinypay::tinypay {
         
         let old_tail = user_account.tail;
         user_account.tail = new_tail;
-        user_account.tail_update_count = user_account.tail_update_count + 1;
+        user_account.tail_update_count += 1;
         
         event::emit(TailRefreshed {
             user_address: user_addr,
@@ -441,11 +441,11 @@ module tinypay::tinypay {
         
         // Update user balance
         let user_account = borrow_global_mut<UserAccount>(user_addr);
-        user_account.balance = user_account.balance + amount;
+        user_account.balance += amount;
         
         // Update global state
         let state = borrow_global_mut<TinyPayState>(@tinypay);
-        state.total_deposits = state.total_deposits + amount;
+        state.total_deposits += amount;
         
         event::emit(FundsAdded {
             user_address: user_addr,
@@ -465,13 +465,13 @@ module tinypay::tinypay {
         assert!(user_account.balance >= amount, E_INSUFFICIENT_BALANCE);
         
         // Update user balance
-        user_account.balance = user_account.balance - amount;
+        user_account.balance -= amount;
         
         // Transfer APT from vault to user
         let state = borrow_global_mut<TinyPayState>(@tinypay);
         let vault_signer = account::create_signer_with_capability(&state.signer_cap);
         coin::transfer<AptosCoin>(&vault_signer, user_addr, amount);
-        state.total_withdrawals = state.total_withdrawals + amount;
+        state.total_withdrawals += amount;
         
         event::emit(FundsWithdrawn {
             user_address: user_addr,
