@@ -7,7 +7,7 @@ authors = ["dev"]
 tinypay = "_"
 
 [dev-addresses]
-tinypay = "0xe1b242cd787c63cd9fac2bb1ef88e6800b427e8ad65c9cf83460d4a74a94d8c5"
+tinypay = "0x59eb790fdcbf1f3841032ede51dc09f15b51988d9e1f8de83e79c9b844062f75"
 
 [dependencies.AptosFramework]
 git = "https://github.com/aptos-labs/aptos-framework.git"

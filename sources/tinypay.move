@@ -133,6 +133,22 @@ module tinypay::tinypay {
         timestamp: u64
     }
 
+    /// Convert bytes to hex string ASCII bytes
+    fun bytes_to_hex_ascii(bytes: vector<u8>): vector<u8> {
+        let hex_chars = b"0123456789abcdef";
+        let result = vector::empty<u8>();
+        let i = 0;
+        while (i < vector::length(&bytes)) {
+            let byte = *vector::borrow(&bytes, i);
+            let high = (byte / 16) as u64;
+            let low = (byte % 16) as u64;
+            vector::push_back(&mut result, *vector::borrow(&hex_chars, high));
+            vector::push_back(&mut result, *vector::borrow(&hex_chars, low));
+            i = i + 1;
+        };
+        result
+    }
+
     /// Initialize the TinyPay system (called once during deployment)
     fun init_module(admin: &signer) {
         init_system(admin);
@@ -284,10 +300,16 @@ module tinypay::tinypay {
         };
 
         // Verify hash(opt) == tail using SHA256
+        // Both opt and tail should be in the same format (ASCII bytes of hex strings)
         let user_account = borrow_global_mut<UserAccount>(payer);
-        let opt_bytes = bcs::to_bytes(&opt);
-        let opt_hash_bytes = hash::sha2_256(opt_bytes);
-        assert!(opt_hash_bytes == user_account.tail, E_INVALID_OPT);
+        
+        // Hash the opt directly (opt contains the previous iteration's hex string as ASCII bytes)
+        let opt_hash_bytes = hash::sha2_256(opt);
+        
+        // Convert hash bytes to hex string ASCII bytes manually
+        let hex_ascii_bytes = bytes_to_hex_ascii(opt_hash_bytes);
+        
+        assert!(hex_ascii_bytes == user_account.tail, E_INVALID_OPT);
 
         assert!(user_account.balance >= amount, E_INSUFFICIENT_BALANCE);
 
