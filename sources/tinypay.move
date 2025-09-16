@@ -187,10 +187,25 @@ module tinypay::tinypay {
     }
 
     /// Deposit APT into user's TinyPay account with tail hash
+    /// Auto-initializes user account if it doesn't exist
     public entry fun deposit(user: &signer, amount: u64, tail: String) acquires UserAccount, TinyPayState {
         assert!(amount > 0, E_INVALID_AMOUNT);
         let user_addr = signer::address_of(user);
-        assert!(exists<UserAccount>(user_addr), E_ACCOUNT_NOT_INITIALIZED);
+        
+        // Auto-initialize user account if it doesn't exist
+        if (!exists<UserAccount>(user_addr)) {
+            move_to(user, UserAccount {
+                balance: 0,
+                tail: string::utf8(b""), // 初始tail为空
+                payment_limit: 0, // 0表示无限制
+                tail_update_count: 0,
+                max_tail_updates: 0, // 0表示无限制
+            });
+
+            event::emit(AccountInitialized {
+                user_address: user_addr,
+            });
+        };
 
         let state = borrow_global<TinyPayState>(@tinypay);
         let vault_addr = account::get_signer_capability_address(&state.signer_cap);
@@ -428,10 +443,25 @@ module tinypay::tinypay {
     }
 
     /// User function to add more funds to account
+    /// Auto-initializes user account if it doesn't exist
     public entry fun add_funds(user: &signer, amount: u64) acquires UserAccount, TinyPayState {
         assert!(amount > 0, E_INVALID_AMOUNT);
         let user_addr = signer::address_of(user);
-        assert!(exists<UserAccount>(user_addr), E_ACCOUNT_NOT_INITIALIZED);
+        
+        // Auto-initialize user account if it doesn't exist
+        if (!exists<UserAccount>(user_addr)) {
+            move_to(user, UserAccount {
+                balance: 0,
+                tail: string::utf8(b""), // 初始tail为空
+                payment_limit: 0, // 0表示无限制
+                tail_update_count: 0,
+                max_tail_updates: 0, // 0表示无限制
+            });
+
+            event::emit(AccountInitialized {
+                user_address: user_addr,
+            });
+        };
         
         let state = borrow_global<TinyPayState>(@tinypay);
         let vault_addr = account::get_signer_capability_address(&state.signer_cap);
