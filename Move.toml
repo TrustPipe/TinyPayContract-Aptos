@@ -1,0 +1,22 @@
+[package]
+name = "tinypay"
+version = "1.0.0"
+authors = ["dev"]
+
+[addresses]
+tinypay = "_"
+
+[dev-addresses]
+tinypay = "0x42"
+
+[dependencies.AptosFramework]
+git = "https://github.com/aptos-labs/aptos-framework.git"
+rev = "mainnet"
+subdir = "aptos-framework"
+
+[dependencies.AptosStdlib]
+git = "https://github.com/aptos-labs/aptos-framework.git"
+rev = "mainnet"
+subdir = "aptos-stdlib"
+
+[dev-dependencies]

@@ -1,0 +1,8 @@
+build/
+node_modules/
+dist/
+app/.env
+.aptos/
+*.log
+.history/
+app/
