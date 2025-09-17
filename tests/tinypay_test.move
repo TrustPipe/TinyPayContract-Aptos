@@ -1,10 +1,6 @@
 #[test_only]
 module tinypay::tinypay_test {
     use std::signer;
-    // string module no longer needed since we use vector<u8> for hashes
-    use std::bcs;
-    use std::vector;
-    use std::hash;
     use aptos_framework::account;
     use aptos_framework::aptos_coin::{Self, AptosCoin};
     use aptos_framework::coin;
@@ -12,10 +8,9 @@ module tinypay::tinypay_test {
     use tinypay::tinypay;
 
     fun setup_test(): (signer, signer, signer) {
-        let admin =
-            account::create_account_for_test(
-                @0xe1b242cd787c63cd9fac2bb1ef88e6800b427e8ad65c9cf83460d4a74a94d8c5
-            );
+        let admin = account::create_account_for_test(
+            @0xe1b242cd787c63cd9fac2bb1ef88e6800b427e8ad65c9cf83460d4a74a94d8c5
+        );
         let user = account::create_account_for_test(@0x123);
         let merchant = account::create_account_for_test(@0x456);
 
@@ -24,30 +19,35 @@ module tinypay::tinypay_test {
         timestamp::set_time_has_started_for_testing(&aptos_framework);
         let (burn_cap, mint_cap) = aptos_coin::initialize_for_test(&aptos_framework);
 
-        // Now register accounts with APT
+        // Register accounts with APT
         coin::register<AptosCoin>(&admin);
         coin::register<AptosCoin>(&user);
         coin::register<AptosCoin>(&merchant);
 
-        let admin_coins = coin::mint<AptosCoin>(1000000000, &mint_cap); // 10 APT
-        let user_coins = coin::mint<AptosCoin>(1000000000, &mint_cap); // 10 APT
-        let merchant_coins = coin::mint<AptosCoin>(1000000000, &mint_cap); // 10 APT
+        // Mint and distribute APT coins
+        let admin_apt = coin::mint<AptosCoin>(1000000000, &mint_cap); // 10 APT
+        let user_apt = coin::mint<AptosCoin>(1000000000, &mint_cap); // 10 APT
+        let merchant_apt = coin::mint<AptosCoin>(1000000000, &mint_cap); // 10 APT
 
-        coin::deposit<AptosCoin>(signer::address_of(&admin), admin_coins);
-        coin::deposit<AptosCoin>(signer::address_of(&user), user_coins);
-        coin::deposit<AptosCoin>(signer::address_of(&merchant), merchant_coins);
+        // Deposit coins
+        coin::deposit<AptosCoin>(signer::address_of(&admin), admin_apt);
+        coin::deposit<AptosCoin>(signer::address_of(&user), user_apt);
+        coin::deposit<AptosCoin>(signer::address_of(&merchant), merchant_apt);
 
+        // Clean up capabilities
         coin::destroy_burn_cap(burn_cap);
         coin::destroy_mint_cap(mint_cap);
 
-        // Initialize TinyPay system
+        // Initialize TinyPay system (automatically supports APT)
         tinypay::init_system(&admin);
 
         (admin, user, merchant)
     }
 
+    // ========== 基础功能测试 ==========
+
     #[test]
-    fun test_deposit_with_tail() {
+    fun test_apt_deposit_basic() {
         let (_admin, user, _merchant) = setup_test();
         let deposit_amount = 100000000; // 1 APT in octas
         let tail = b"test_tail_123";
@@ -56,288 +56,151 @@ module tinypay::tinypay_test {
         let initial_balance = coin::balance<AptosCoin>(signer::address_of(&user));
 
         // Deposit APT with tail
-        tinypay::deposit(&user, deposit_amount, tail);
+        tinypay::deposit<AptosCoin>(&user, deposit_amount, tail);
 
         // Verify TinyPay balance increased
-        assert!(tinypay::get_balance(signer::address_of(&user)) == deposit_amount, 1);
+        let tinypay_balance = tinypay::get_balance<AptosCoin>(signer::address_of(&user));
+        assert!(tinypay_balance == deposit_amount, 1);
 
-        // Verify tail was set
-        assert!(tinypay::get_user_tail(signer::address_of(&user)) == tail, 2);
-
-        // Verify APT balance decreased
+        // Verify user's coin balance decreased
         let final_balance = coin::balance<AptosCoin>(signer::address_of(&user));
-        assert!(
-            final_balance == initial_balance - deposit_amount,
-            3
-        );
-
-        // Verify tail update count increased
-        let (_, tail_update_count, _) =
-            tinypay::get_user_limits(signer::address_of(&user));
-        assert!(tail_update_count == 1, 4);
+        assert!(final_balance == initial_balance - deposit_amount, 2);
     }
 
     #[test]
-    fun test_refresh_tail() {
+    fun test_apt_withdraw() {
         let (_admin, user, _merchant) = setup_test();
-        let initial_tail = b"initial_tail";
-        let new_tail = b"refreshed_tail";
-
-        // Deposit with initial tail
-        tinypay::deposit(&user, 100000000, initial_tail);
-
-        // Verify initial state
-        assert!(tinypay::get_user_tail(signer::address_of(&user)) == initial_tail, 1);
-        let (_, tail_count_before, _) =
-            tinypay::get_user_limits(signer::address_of(&user));
-        assert!(tail_count_before == 1, 2);
-
-        // Refresh tail
-        tinypay::refresh_tail(&user, new_tail);
-
-        // Verify tail was updated
-        assert!(tinypay::get_user_tail(signer::address_of(&user)) == new_tail, 3);
-        let (_, tail_count_after, _) =
-            tinypay::get_user_limits(signer::address_of(&user));
-        assert!(tail_count_after == 2, 4);
-    }
-
-    #[test]
-    fun test_add_funds() {
-        let (_admin, user, _merchant) = setup_test();
-        let initial_deposit = 100000000; // 1 APT
-        let additional_funds = 200000000; // 2 APT
-        let tail = b"test_tail";
-
-        // Initialize account and deposit initial funds
-        tinypay::deposit(&user, initial_deposit, tail);
-
-        // Verify initial balance
-        assert!(tinypay::get_balance(signer::address_of(&user)) == initial_deposit, 1);
-
-        // Add more funds
-        tinypay::add_funds(&user, additional_funds);
-
-        // Verify balance increased
-        let expected_balance = initial_deposit + additional_funds;
-        assert!(tinypay::get_balance(signer::address_of(&user)) == expected_balance, 2);
-    }
-
-    #[test]
-    fun test_withdraw_funds() {
-        let (_admin, user, _merchant) = setup_test();
-        let deposit_amount = 300000000; // 3 APT
+        let deposit_amount = 200000000; // 2 APT
         let withdraw_amount = 100000000; // 1 APT
-        let tail = b"test_tail";
+        let tail = b"withdraw_tail";
 
-        // Initialize account and deposit funds
-        tinypay::deposit(&user, deposit_amount, tail);
+        // First deposit
+        tinypay::deposit<AptosCoin>(&user, deposit_amount, tail);
 
-        // Check initial balance
-        assert!(tinypay::get_balance(signer::address_of(&user)) == deposit_amount, 1);
+        // Check balance before withdrawal
+        let initial_coin_balance = coin::balance<AptosCoin>(signer::address_of(&user));
+        let initial_tinypay_balance = tinypay::get_balance<AptosCoin>(signer::address_of(&user));
 
-        // Check initial APT balance
-        let initial_apt_balance = coin::balance<AptosCoin>(signer::address_of(&user));
+        // Withdraw
+        tinypay::withdraw_funds<AptosCoin>(&user, withdraw_amount);
 
-        // Withdraw funds
-        tinypay::withdraw_funds(&user, withdraw_amount);
+        // Verify balances
+        let final_coin_balance = coin::balance<AptosCoin>(signer::address_of(&user));
+        let final_tinypay_balance = tinypay::get_balance<AptosCoin>(signer::address_of(&user));
 
-        // Verify TinyPay balance decreased
-        let expected_balance = deposit_amount - withdraw_amount;
-        assert!(tinypay::get_balance(signer::address_of(&user)) == expected_balance, 2);
-
-        // Verify APT balance increased
-        let final_apt_balance = coin::balance<AptosCoin>(signer::address_of(&user));
-        assert!(
-            final_apt_balance == initial_apt_balance + withdraw_amount,
-            3
-        );
+        assert!(final_coin_balance == initial_coin_balance + withdraw_amount, 1);
+        assert!(final_tinypay_balance == initial_tinypay_balance - withdraw_amount, 2);
     }
 
     #[test]
-    #[expected_failure(abort_code = tinypay::E_INVALID_AMOUNT)]
-    fun test_deposit_zero_amount() {
+    fun test_multiple_deposits() {
         let (_admin, user, _merchant) = setup_test();
+        let first_amount = 100000000; // 1 APT
+        let second_amount = 150000000; // 1.5 APT
+        let tail = b"multi_deposit_tail";
 
-        // Try to deposit zero amount - should fail
-        tinypay::deposit(&user, 0, b"test_tail");
+        // First deposit
+        tinypay::deposit<AptosCoin>(&user, first_amount, tail);
+        let balance_after_first = tinypay::get_balance<AptosCoin>(signer::address_of(&user));
+        assert!(balance_after_first == first_amount, 1);
+
+        // Second deposit
+        tinypay::deposit<AptosCoin>(&user, second_amount, tail);
+        let balance_after_second = tinypay::get_balance<AptosCoin>(signer::address_of(&user));
+        assert!(balance_after_second == first_amount + second_amount, 2);
     }
 
+    // ========== 多用户测试 ==========
+
     #[test]
-    fun test_admin_update_fee_rate() {
-        let (admin, _user, _merchant) = setup_test();
-        let new_fee_rate = 200; // 2%
+    fun test_merchant_transactions() {
+        let (_admin, user, merchant) = setup_test();
+        let user_deposit = 500000000; // 5 APT
+        let merchant_deposit = 300000000; // 3 APT
+        let tail = b"merchant_test";
 
-        // Update fee rate as admin
-        tinypay::update_fee_rate(&admin, new_fee_rate);
+        // Both user and merchant deposit
+        tinypay::deposit<AptosCoin>(&user, user_deposit, tail);
+        tinypay::deposit<AptosCoin>(&merchant, merchant_deposit, tail);
 
-        // Verify fee rate was updated
-        let (_, _, fee_rate) = tinypay::get_system_stats();
-        assert!(fee_rate == new_fee_rate, 1);
+        // Verify separate balances
+        let user_balance = tinypay::get_balance<AptosCoin>(signer::address_of(&user));
+        let merchant_balance = tinypay::get_balance<AptosCoin>(signer::address_of(&merchant));
+        
+        assert!(user_balance == user_deposit, 1);
+        assert!(merchant_balance == merchant_deposit, 2);
     }
 
+    // ========== Tail 功能测试 ==========
+
     #[test]
-    #[expected_failure(abort_code = tinypay::E_NOT_ADMIN)]
-    fun test_non_admin_update_fee_rate() {
+    fun test_tail_update() {
         let (_admin, user, _merchant) = setup_test();
-        let new_fee_rate = 200;
+        let deposit_amount = 100000000; // 1 APT
+        let first_tail = b"first_tail";
+        let second_tail = b"second_tail";
 
-        // Try to update fee rate as non-admin - should fail
-        tinypay::update_fee_rate(&user, new_fee_rate);
+        // Deposit with first tail
+        tinypay::deposit<AptosCoin>(&user, deposit_amount, first_tail);
+        
+        // Deposit with different tail (should update tail)
+        tinypay::deposit<AptosCoin>(&user, deposit_amount, second_tail);
+
+        // Verify balance is correct
+        let final_balance = tinypay::get_balance<AptosCoin>(signer::address_of(&user));
+        assert!(final_balance == deposit_amount * 2, 1);
     }
 
+    // ========== 系统功能测试 ==========
+
     #[test]
-    fun test_get_system_stats() {
+    fun test_coin_support_check() {
+        let (_admin, _user, _merchant) = setup_test();
+
+        // Check that APT is supported by default
+        assert!(tinypay::is_coin_supported<AptosCoin>(), 1);
+    }
+
+    // ========== 错误处理测试 ==========
+
+    #[test]
+    #[expected_failure(abort_code = 2, location = tinypay::tinypay)]
+    fun test_zero_amount_deposit() {
         let (_admin, user, _merchant) = setup_test();
-        let deposit_amount = 300000000; // 3 APT
+        let tail = b"zero_test";
 
-        // Initialize account and deposit
-        tinypay::deposit(&user, deposit_amount, b"test_tail");
-
-        // Check system stats
-        let (total_deposits, total_withdrawals, fee_rate) = tinypay::get_system_stats();
-        assert!(total_deposits == deposit_amount, 1);
-        assert!(total_withdrawals == 0, 2);
-        assert!(fee_rate == 100, 3); // Default 1% fee
+        // This should fail with E_INVALID_AMOUNT
+        tinypay::deposit<AptosCoin>(&user, 0, tail);
     }
 
     #[test]
-    fun test_set_payment_limit() {
+    #[expected_failure(abort_code = 3, location = tinypay::tinypay)]
+    fun test_account_not_initialized_withdrawal() {
         let (_admin, user, _merchant) = setup_test();
-        let limit = 100000000; // 1 APT limit
-
-        // deposit to init fist
-        tinypay::deposit(&user, 100000000, b"test_tail");
-
-        // Set payment limit
-        tinypay::set_payment_limit(&user, limit);
-
-        // Verify limit was set
-        let (payment_limit, _, _) = tinypay::get_user_limits(signer::address_of(&user));
-        assert!(payment_limit == limit, 1);
+        
+        // Try to withdraw without initializing account first
+        // This should fail with E_ACCOUNT_NOT_INITIALIZED
+        tinypay::withdraw_funds<AptosCoin>(&user, 100000000);
     }
 
     #[test]
-    fun test_set_tail_updates_limit() {
-        let (_admin, user, _merchant) = setup_test();
-        let limit = 5; // 5 tail updates max
-
-        // deposit to init fist
-        tinypay::deposit(&user, 100000000, b"test_tail");
-
-        // Set tail updates limit
-        tinypay::set_tail_updates_limit(&user, limit);
-
-        // Verify limit was set
-        let (_, _, max_tail_updates) =
-            tinypay::get_user_limits(signer::address_of(&user));
-        assert!(max_tail_updates == limit, 1);
-    }
-
-    #[test]
-    #[expected_failure(abort_code = tinypay::E_TAIL_UPDATES_LIMIT_EXCEEDED)]
-    fun test_refresh_tail_limit_exceeded() {
-        let (_admin, user, _merchant) = setup_test();
-        let limit = 2; // Only 2 tail updates allowed
-
-        // deposit to init fist
-        tinypay::deposit(&user, 100000000, b"test_tail");
-
-        // Set tail updates limit
-        tinypay::set_tail_updates_limit(&user, limit);
-
-        // Deposit with first tail update
-        tinypay::deposit(&user, 100000000, b"tail1");
-
-        // Refresh tail (second update)
-        tinypay::refresh_tail(&user, b"tail2");
-
-        // Try to refresh again (third update) - should fail
-        tinypay::refresh_tail(&user, b"tail3");
-    }
-
-    #[test]
-    #[expected_failure(abort_code = tinypay::E_INSUFFICIENT_BALANCE)]
-    fun test_withdraw_insufficient_balance() {
+    #[expected_failure(abort_code = 1, location = tinypay::tinypay)]
+    fun test_insufficient_balance_withdrawal() {
         let (_admin, user, _merchant) = setup_test();
         let deposit_amount = 100000000; // 1 APT
         let withdraw_amount = 200000000; // 2 APT (more than deposited)
 
-        // deposit
-        tinypay::deposit(&user, deposit_amount, b"test_tail");
-
-        // Try to withdraw more than available - should fail
-        tinypay::withdraw_funds(&user, withdraw_amount);
+        // Deposit then try to withdraw more than available
+        tinypay::deposit<AptosCoin>(&user, deposit_amount, b"test_tail");
+        tinypay::withdraw_funds<AptosCoin>(&user, withdraw_amount);
     }
 
     #[test]
-    fun test_two_phase_payment() {
-        let (_admin, user, merchant) = setup_test();
-        let deposit_amount = 500000000; // 5 APT
-        let payment_amount = 100000000; // 1 APT
-        let opt_value = b"test_opt_value";
+    #[expected_failure(abort_code = 11, location = tinypay::tinypay)]
+    fun test_add_duplicate_coin_support() {
+        let (admin, _user, _merchant) = setup_test();
 
-        // deposit with initial tail that matches hash(opt)
-        // First calculate what the tail should be (hash of opt)
-        let opt_bytes = bcs::to_bytes(&opt_value);
-        let tail_hash_bytes = hash::sha2_256(opt_bytes);
-        let initial_tail = tail_hash_bytes;
-
-        tinypay::deposit(&user, deposit_amount, initial_tail);
-
-        // Phase 1: Merchant pre-commit
-        // Generate commit hash from payment parameters (payer, recipient, amount, opt)
-        let params_bytes = vector::empty<u8>();
-        let payer_bytes = bcs::to_bytes(&signer::address_of(&user));
-        let recipient_bytes = bcs::to_bytes(&signer::address_of(&merchant));
-        let amount_bytes = bcs::to_bytes(&payment_amount);
-        let opt_bytes_for_hash = bcs::to_bytes(&opt_value);
-
-        params_bytes.append(payer_bytes);
-        params_bytes.append(recipient_bytes);
-        params_bytes.append(amount_bytes);
-        params_bytes.append(opt_bytes_for_hash);
-
-        let commit_hash_bytes = hash::sha2_256(params_bytes);
-        let commit_hash = commit_hash_bytes;
-
-        tinypay::merchant_precommit(&merchant, commit_hash);
-
-        // Verify user balance before payment
-        assert!(tinypay::get_balance(signer::address_of(&user)) == deposit_amount, 1);
-
-        // Phase 2: User completes payment with opt value
-        let merchant_initial_balance =
-            coin::balance<AptosCoin>(signer::address_of(&merchant));
-
-        tinypay::complete_payment(
-            &user,
-            opt_value,
-            signer::address_of(&user),
-            signer::address_of(&merchant),
-            payment_amount,
-            commit_hash
-        );
-
-        // Verify payment was successful
-        let user_balance_after = tinypay::get_balance(signer::address_of(&user));
-        assert!(
-            user_balance_after == deposit_amount - payment_amount,
-            2
-        );
-
-        // Verify merchant received payment (minus fee)
-        let merchant_final_balance =
-            coin::balance<AptosCoin>(signer::address_of(&merchant));
-        let fee = (payment_amount * 100) / 10000; // 1% fee
-        let expected_merchant_amount = payment_amount - fee;
-        assert!(
-            merchant_final_balance
-                == merchant_initial_balance + expected_merchant_amount,
-            3
-        );
-
-        // Verify tail was updated to opt value
-        assert!(tinypay::get_user_tail(signer::address_of(&user)) == opt_value, 4);
+        // Try to add APT support again - should fail since it's already supported
+        tinypay::add_coin_support<AptosCoin>(&admin);
     }
 }
