@@ -8,9 +8,7 @@ module tinypay::tinypay_test {
     use tinypay::tinypay;
 
     fun setup_test(): (signer, signer, signer) {
-        let admin = account::create_account_for_test(
-            @0xe1b242cd787c63cd9fac2bb1ef88e6800b427e8ad65c9cf83460d4a74a94d8c5
-        );
+        let admin = account::create_account_for_test(@tinypay);
         let user = account::create_account_for_test(@0x123);
         let merchant = account::create_account_for_test(@0x456);
 

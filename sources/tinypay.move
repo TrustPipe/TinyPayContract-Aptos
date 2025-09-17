@@ -114,9 +114,10 @@ module tinypay::tinypay {
     }
 
     /// Get the admin address where TinyPayState is stored
+    /// This should be the address that deployed and initialized the module
     fun get_admin_address(): address {
-        // We know the admin address is the module deployer address
-        @0xe1b242cd787c63cd9fac2bb1ef88e6800b427e8ad65c9cf83460d4a74a94d8c5
+        // Return the module deployer address - this will be set at deployment time
+        @tinypay
     }
 
     /// Convert bytes to hex string ASCII bytes
