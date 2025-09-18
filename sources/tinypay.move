@@ -113,11 +113,159 @@ module tinypay::tinypay {
         timestamp: u64
     }
 
+    #[event]
+    struct PreCommitMade has drop, store {
+        merchant_address: address,
+        commit_hash: vector<u8>,
+        expiry_time: u64,
+        timestamp: u64
+    }
+
+    #[event]
+    struct PaymentLimitUpdated has drop, store {
+        user_address: address,
+        old_limit: u64,
+        new_limit: u64,
+        timestamp: u64
+    }
+
+    #[event]
+    struct TailUpdatesLimitSet has drop, store {
+        user_address: address,
+        old_limit: u64,
+        new_limit: u64,
+        timestamp: u64
+    }
+
+    #[event]
+    struct TailRefreshed has drop, store {
+        user_address: address,
+        old_tail: vector<u8>,
+        new_tail: vector<u8>,
+        tail_update_count: u64,
+        timestamp: u64
+    }
+
     /// Get the admin address where TinyPayState is stored
     /// This should be the address that deployed and initialized the module
     fun get_admin_address(): address {
         // Return the module deployer address - this will be set at deployment time
         @tinypay
+    }
+
+    /// Merchant pre-commit for payment with multi-coin support
+    public entry fun merchant_precommit<CoinType>(
+        merchant: &signer,
+        payer: address,
+        recipient: address,
+        amount: u64,
+        opt: vector<u8>
+    ) acquires TinyPayState {
+        let merchant_addr = signer::address_of(merchant);
+        let admin_addr = get_admin_address();
+        let state = borrow_global_mut<TinyPayState>(admin_addr);
+        let coin_type = type_info::type_of<CoinType>();
+        
+        // Check if coin is supported
+        assert!(state.supported_coins.contains(coin_type), E_COIN_NOT_SUPPORTED);
+        
+        // Generate commit hash from payment parameters
+        let params_bytes = vector::empty<u8>();
+        let payer_bytes = bcs::to_bytes(&payer);
+        let recipient_bytes = bcs::to_bytes(&recipient);
+        let amount_bytes = bcs::to_bytes(&amount);
+        let opt_bytes = bcs::to_bytes(&opt);
+        let coin_type_bytes = bcs::to_bytes(&coin_type);
+        
+        params_bytes.append(payer_bytes);
+        params_bytes.append(recipient_bytes);
+        params_bytes.append(amount_bytes);
+        params_bytes.append(opt_bytes);
+        params_bytes.append(coin_type_bytes);
+        
+        let commit_hash = hash::sha2_256(params_bytes);
+        let expiry_time = timestamp::now_seconds() + 900; // 15 minutes
+        
+        // Store pre-commit
+        state.precommits.add(commit_hash, PreCommit {
+            merchant: merchant_addr,
+            expiry_time
+        });
+        
+        event::emit(PreCommitMade {
+            merchant_address: merchant_addr,
+            commit_hash,
+            expiry_time,
+            timestamp: timestamp::now_seconds()
+        });
+    }
+
+    /// Set payment limit for user account
+    public entry fun set_payment_limit(
+        user: &signer,
+        limit: u64
+    ) acquires UserAccount {
+        let user_addr = signer::address_of(user);
+        assert!(exists<UserAccount>(user_addr), E_ACCOUNT_NOT_INITIALIZED);
+        
+        let user_account = borrow_global_mut<UserAccount>(user_addr);
+        let old_limit = user_account.payment_limit;
+        user_account.payment_limit = limit;
+        
+        event::emit(PaymentLimitUpdated {
+            user_address: user_addr,
+            old_limit,
+            new_limit: limit,
+            timestamp: timestamp::now_seconds()
+        });
+    }
+
+    /// Set tail updates limit for user account
+    public entry fun set_tail_updates_limit(
+        user: &signer,
+        limit: u64
+    ) acquires UserAccount {
+        let user_addr = signer::address_of(user);
+        assert!(exists<UserAccount>(user_addr), E_ACCOUNT_NOT_INITIALIZED);
+        
+        let user_account = borrow_global_mut<UserAccount>(user_addr);
+        let old_limit = user_account.max_tail_updates;
+        user_account.max_tail_updates = limit;
+        
+        event::emit(TailUpdatesLimitSet {
+            user_address: user_addr,
+            old_limit,
+            new_limit: limit,
+            timestamp: timestamp::now_seconds()
+        });
+    }
+
+    /// Refresh tail for user account
+    public entry fun refresh_tail(
+        user: &signer,
+        new_tail: vector<u8>
+    ) acquires UserAccount {
+        let user_addr = signer::address_of(user);
+        assert!(exists<UserAccount>(user_addr), E_ACCOUNT_NOT_INITIALIZED);
+        
+        let user_account = borrow_global_mut<UserAccount>(user_addr);
+        
+        // Check tail update limit
+        if (user_account.max_tail_updates > 0) {
+            assert!(user_account.tail_update_count < user_account.max_tail_updates, E_TAIL_UPDATES_LIMIT_EXCEEDED);
+        };
+        
+        let old_tail = user_account.tail;
+        user_account.tail = new_tail;
+        user_account.tail_update_count += 1;
+        
+        event::emit(TailRefreshed {
+            user_address: user_addr,
+            old_tail,
+            new_tail,
+            tail_update_count: user_account.tail_update_count,
+            timestamp: timestamp::now_seconds()
+        });
     }
 
     /// Convert bytes to hex string ASCII bytes
@@ -284,11 +432,17 @@ module tinypay::tinypay {
         // Verify commit_hash if not paymaster
         if (!is_paymaster) {
             let params_bytes = vector::empty<u8>();
-            params_bytes.append(bcs::to_bytes(&payer));
-            params_bytes.append(bcs::to_bytes(&recipient));
-            params_bytes.append(bcs::to_bytes(&amount));
-            params_bytes.append(bcs::to_bytes(&opt));
-            params_bytes.append(bcs::to_bytes(&coin_type));
+            let payer_bytes = bcs::to_bytes(&payer);
+            let recipient_bytes = bcs::to_bytes(&recipient);
+            let amount_bytes = bcs::to_bytes(&amount);
+            let opt_bytes = bcs::to_bytes(&opt);
+            let coin_type_bytes = bcs::to_bytes(&coin_type);
+            
+            params_bytes.append(payer_bytes);
+            params_bytes.append(recipient_bytes);
+            params_bytes.append(amount_bytes);
+            params_bytes.append(opt_bytes);
+            params_bytes.append(coin_type_bytes);
 
             let computed_hash = hash::sha2_256(params_bytes);
             assert!(computed_hash == commit_hash, E_INVALID_PRECOMMIT);
@@ -405,5 +559,46 @@ module tinypay::tinypay {
         let state = borrow_global<TinyPayState>(admin_addr);
         let coin_type = type_info::type_of<CoinType>();
         state.supported_coins.contains(coin_type)
+    }
+
+    #[view]
+    public fun get_user_limits(user_address: address): (u64, u64, u64) acquires UserAccount {
+        if (!exists<UserAccount>(user_address)) {
+            return (0, 0, 0)
+        };
+        
+        let user_account = borrow_global<UserAccount>(user_address);
+        (user_account.payment_limit, user_account.tail_update_count, user_account.max_tail_updates)
+    }
+
+    #[view]
+    public fun get_user_tail(user_address: address): vector<u8> acquires UserAccount {
+        if (!exists<UserAccount>(user_address)) {
+            return vector::empty<u8>()
+        };
+        
+        let user_account = borrow_global<UserAccount>(user_address);
+        user_account.tail
+    }
+
+    #[view]
+    public fun get_system_stats(): (u64, u64, u64) acquires TinyPayState {
+        let admin_addr = get_admin_address();
+        let state = borrow_global<TinyPayState>(admin_addr);
+        
+        // For multi-coin system, we'll return APT stats as the primary stats
+        let apt_type = type_info::type_of<AptosCoin>();
+        let total_deposits = if (state.total_deposits.contains(apt_type)) {
+            *state.total_deposits.borrow(apt_type)
+        } else {
+            0
+        };
+        let total_withdrawals = if (state.total_withdrawals.contains(apt_type)) {
+            *state.total_withdrawals.borrow(apt_type)
+        } else {
+            0
+        };
+        
+        (total_deposits, total_withdrawals, state.fee_rate)
     }
 }

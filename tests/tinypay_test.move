@@ -1,6 +1,7 @@
 #[test_only]
 module tinypay::tinypay_test {
     use std::signer;
+    use std::vector;
     use aptos_framework::account;
     use aptos_framework::aptos_coin::{Self, AptosCoin};
     use aptos_framework::coin;
@@ -200,5 +201,175 @@ module tinypay::tinypay_test {
 
         // Try to add APT support again - should fail since it's already supported
         tinypay::add_coin_support<AptosCoin>(&admin);
+    }
+
+    // ========== 恢复的方法测试 ==========
+
+    #[test]
+    fun test_set_payment_limit() {
+        let (_admin, user, _merchant) = setup_test();
+        let deposit_amount = 200000000; // 2 APT
+        let payment_limit = 100000000; // 1 APT limit
+        let tail = b"limit_test";
+
+        // First deposit to initialize account
+        tinypay::deposit<AptosCoin>(&user, deposit_amount, tail);
+
+        // Set payment limit
+        tinypay::set_payment_limit(&user, payment_limit);
+
+        // Verify limit was set
+        let (limit, _, _) = tinypay::get_user_limits(signer::address_of(&user));
+        assert!(limit == payment_limit, 1);
+    }
+
+    #[test]
+    fun test_set_tail_updates_limit() {
+        let (_admin, user, _merchant) = setup_test();
+        let deposit_amount = 100000000; // 1 APT
+        let tail_limit = 5; // 5 tail updates max
+        let tail = b"tail_limit_test";
+
+        // First deposit to initialize account
+        tinypay::deposit<AptosCoin>(&user, deposit_amount, tail);
+
+        // Set tail updates limit
+        tinypay::set_tail_updates_limit(&user, tail_limit);
+
+        // Verify limit was set
+        let (_, _, max_tail_updates) = tinypay::get_user_limits(signer::address_of(&user));
+        assert!(max_tail_updates == tail_limit, 1);
+    }
+
+    #[test]
+    fun test_refresh_tail() {
+        let (_admin, user, _merchant) = setup_test();
+        let deposit_amount = 100000000; // 1 APT
+        let initial_tail = b"initial_tail";
+        let new_tail = b"refreshed_tail";
+
+        // First deposit to initialize account
+        tinypay::deposit<AptosCoin>(&user, deposit_amount, initial_tail);
+
+        // Verify initial state
+        assert!(tinypay::get_user_tail(signer::address_of(&user)) == initial_tail, 1);
+        let (_, tail_count_before, _) = tinypay::get_user_limits(signer::address_of(&user));
+        assert!(tail_count_before == 1, 2);
+
+        // Refresh tail
+        tinypay::refresh_tail(&user, new_tail);
+
+        // Verify tail was updated
+        assert!(tinypay::get_user_tail(signer::address_of(&user)) == new_tail, 3);
+        let (_, tail_count_after, _) = tinypay::get_user_limits(signer::address_of(&user));
+        assert!(tail_count_after == 2, 4);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = 9, location = tinypay::tinypay)]
+    fun test_refresh_tail_limit_exceeded() {
+        let (_admin, user, _merchant) = setup_test();
+        let deposit_amount = 100000000; // 1 APT
+        let tail_limit = 2; // Only 2 tail updates allowed
+        let initial_tail = b"initial_tail";
+
+        // First deposit to initialize account
+        tinypay::deposit<AptosCoin>(&user, deposit_amount, initial_tail);
+
+        // Set tail updates limit
+        tinypay::set_tail_updates_limit(&user, tail_limit);
+
+        // Refresh tail (second update)
+        tinypay::refresh_tail(&user, b"tail2");
+
+        // Try to refresh again (third update) - should fail
+        tinypay::refresh_tail(&user, b"tail3");
+    }
+
+    #[test]
+    fun test_merchant_precommit() {
+        let (_admin, user, merchant) = setup_test();
+        let deposit_amount = 500000000; // 5 APT
+        let payment_amount = 100000000; // 1 APT
+        let opt_value = b"test_opt_value";
+        let tail = b"precommit_test";
+
+        // First deposit to initialize account
+        tinypay::deposit<AptosCoin>(&user, deposit_amount, tail);
+
+        // Merchant makes pre-commit
+        tinypay::merchant_precommit<AptosCoin>(
+            &merchant,
+            signer::address_of(&user),
+            signer::address_of(&merchant),
+            payment_amount,
+            opt_value
+        );
+
+        // This test verifies that the precommit doesn't fail
+        // In a real scenario, we would test the complete payment flow
+    }
+
+    #[test]
+    fun test_get_system_stats() {
+        let (_admin, user, _merchant) = setup_test();
+        let deposit_amount = 300000000; // 3 APT
+        let tail = b"stats_test";
+
+        // Deposit to create some system activity
+        tinypay::deposit<AptosCoin>(&user, deposit_amount, tail);
+
+        // Check system stats
+        let (total_deposits, total_withdrawals, fee_rate) = tinypay::get_system_stats();
+        assert!(total_deposits == deposit_amount, 1);
+        assert!(total_withdrawals == 0, 2);
+        assert!(fee_rate == 100, 3); // Default 1% fee
+    }
+
+    #[test]
+    fun test_get_user_limits_uninitialized() {
+        let (_admin, user, _merchant) = setup_test();
+
+        // Check limits for uninitialized account
+        let (payment_limit, tail_update_count, max_tail_updates) = tinypay::get_user_limits(signer::address_of(&user));
+        assert!(payment_limit == 0, 1);
+        assert!(tail_update_count == 0, 2);
+        assert!(max_tail_updates == 0, 3);
+    }
+
+    #[test]
+    fun test_get_user_tail_uninitialized() {
+        let (_admin, user, _merchant) = setup_test();
+
+        // Check tail for uninitialized account
+        let tail = tinypay::get_user_tail(signer::address_of(&user));
+        assert!(tail == vector::empty<u8>(), 1);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = 3, location = tinypay::tinypay)]
+    fun test_set_payment_limit_uninitialized() {
+        let (_admin, user, _merchant) = setup_test();
+
+        // Try to set payment limit without initializing account first
+        tinypay::set_payment_limit(&user, 100000000);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = 3, location = tinypay::tinypay)]
+    fun test_set_tail_updates_limit_uninitialized() {
+        let (_admin, user, _merchant) = setup_test();
+
+        // Try to set tail updates limit without initializing account first
+        tinypay::set_tail_updates_limit(&user, 5);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = 3, location = tinypay::tinypay)]
+    fun test_refresh_tail_uninitialized() {
+        let (_admin, user, _merchant) = setup_test();
+
+        // Try to refresh tail without initializing account first
+        tinypay::refresh_tail(&user, b"new_tail");
     }
 }

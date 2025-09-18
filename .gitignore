@@ -6,3 +6,4 @@ app/.env
 *.log
 .history/
 app/
+.idea/
