@@ -74,7 +74,7 @@ echo -e "${BLUE}Deployed address: ${DEPLOYED_ADDRESS}${NC}"
 # Initialize the TinyPay FA system
 echo -e "${YELLOW}⚙️  Initializing TinyPay FA system...${NC}"
 aptos move run \
-    --function-id "${DEPLOYED_ADDRESS}::tinypay_fa::init_system" \
+    --function-id "${DEPLOYED_ADDRESS}::tinypay::init_system" \
     --profile $PROFILE \
     --assume-yes
 
@@ -109,7 +109,7 @@ echo -e "${BLUE}USDC Metadata Address: ${USDC_METADATA}${NC}"
 # Add USDC support to TinyPay
 echo -e "${YELLOW}🔗 Adding USDC support to TinyPay...${NC}"
 aptos move run \
-    --function-id "${DEPLOYED_ADDRESS}::tinypay_fa::add_asset_support" \
+    --function-id "${DEPLOYED_ADDRESS}::tinypay::add_asset_support" \
     --args "object:${USDC_METADATA}" \
     --profile $PROFILE \
     --assume-yes
@@ -123,7 +123,7 @@ fi
 # Verify deployment
 echo -e "${YELLOW}✅ Verifying deployment...${NC}"
 IS_SUPPORTED=$(aptos move view \
-    --function-id "${DEPLOYED_ADDRESS}::tinypay_fa::is_asset_supported" \
+    --function-id "${DEPLOYED_ADDRESS}::tinypay::is_asset_supported" \
     --args "object:${USDC_METADATA}" \
     --profile $PROFILE | jq -r '.[]')
 
@@ -144,9 +144,9 @@ echo -e "\n${BLUE}=== Next Steps ===${NC}"
 echo -e "1. Mint some test USDC:"
 echo -e "   aptos move run --function-id ${DEPLOYED_ADDRESS}::usdc::mint --args address:<your_address> u64:1000000 --profile $PROFILE"
 echo -e "\n2. Deposit USDC to TinyPay:"
-echo -e "   aptos move run --function-id ${DEPLOYED_ADDRESS}::tinypay_fa::deposit --args object:${USDC_METADATA} u64:100000 \"vector<u8>:0x696e697469616c5f7461696c\" --profile $PROFILE"
+echo -e "   aptos move run --function-id ${DEPLOYED_ADDRESS}::tinypay::deposit --args object:${USDC_METADATA} u64:100000 \"vector<u8>:0x696e697469616c5f7461696c\" --profile $PROFILE"
 echo -e "\n3. Check your balance:"
-echo -e "   aptos move view --function-id ${DEPLOYED_ADDRESS}::tinypay_fa::get_balance --args address:<your_address> object:${USDC_METADATA} --profile $PROFILE"
+echo -e "   aptos move view --function-id ${DEPLOYED_ADDRESS}::tinypay::get_balance --args address:<your_address> object:${USDC_METADATA} --profile $PROFILE"
 echo -e "\n${YELLOW}For more examples, check: examples/fa_usage_demo.md${NC}"
 
 echo -e "\n${GREEN}Happy using TinyPay FA! 🚀${NC}"

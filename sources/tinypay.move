@@ -2,7 +2,7 @@
 /// Supports multiple FA tokens (APT, USDC, USDT, etc.) for offline payment vouchers
 /// Allows users to deposit FA tokens, generate offline payment vouchers,
 /// and enables merchants to redeem those vouchers for token withdrawals.
-module tinypay::tinypay_fa {
+module tinypay::tinypay {
     use std::bcs;
     use std::hash;
     use std::signer;
@@ -294,7 +294,7 @@ module tinypay::tinypay_fa {
     /// Public function to initialize system
     public fun init_system(admin: &signer) {
         let admin_addr = signer::address_of(admin);
-        let (_resource_signer, signer_cap) = account::create_resource_account(admin, b"tinypay_fa_vault");
+        let (_resource_signer, signer_cap) = account::create_resource_account(admin, b"tinypay_vault");
 
         move_to(admin, TinyPayState {
             total_deposits: table::new(),
