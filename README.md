@@ -63,8 +63,8 @@ struct PrecommitInfo has store, drop {
 - `refresh_tail<CoinType>(user: &signer, new_tail: vector<u8>)` - Update payment tail hash
 
 #### Payment Functions
-- `merchant_precommit<CoinType>(merchant: &signer, payer: address, recipient: address, amount: u64, opt: vector<u8>)` - Merchant precommit for payment
-- `complete_payment<CoinType>(caller: &signer, opt: vector<u8>, payer: address, recipient: address, amount: u64, commit_hash: vector<u8>)` - Complete offline payment
+- `merchant_precommit<CoinType>(merchant: &signer, payer: address, recipient: address, amount: u64, otp: vector<u8>)` - Merchant precommit for payment
+- `complete_payment<CoinType>(caller: &signer, otp: vector<u8>, payer: address, recipient: address, amount: u64, commit_hash: vector<u8>)` - Complete offline payment
 
 #### Admin Functions
 - `set_fee_rate(admin: &signer, new_fee_rate: u64)` - Update system fee rate
@@ -142,7 +142,7 @@ aptos move run --function-id <CONTRACT_ADDRESS>::tinypay::deposit \
 
 ### 3. Generate Payment Hash Chain
 ```bash
-# Use the provided Python script to generate opt/tail parameters
+# Use the provided Python script to generate otp/tail parameters
 python3 scripts/complete_workflow.py "HelloAptosKS" -n 1000
 ```
 
@@ -291,7 +291,7 @@ struct PaymentCompleted has drop, store {
     coin_type: String,
     amount: u64,
     fee: u64,
-    opt: vector<u8>,
+    otp: vector<u8>,
     timestamp: u64,
 }
 ```

@@ -159,7 +159,7 @@ module tinypay::tinypay {
         payer: address,
         recipient: address,
         amount: u64,
-        opt: vector<u8>
+        otp: vector<u8>
     ) acquires TinyPayState {
         let merchant_addr = signer::address_of(merchant);
         let admin_addr = get_admin_address();
@@ -174,13 +174,13 @@ module tinypay::tinypay {
         let payer_bytes = bcs::to_bytes(&payer);
         let recipient_bytes = bcs::to_bytes(&recipient);
         let amount_bytes = bcs::to_bytes(&amount);
-        let opt_bytes = bcs::to_bytes(&opt);
+        let otp_bytes = bcs::to_bytes(&otp);
         let coin_type_bytes = bcs::to_bytes(&coin_type);
         
         params_bytes.append(payer_bytes);
         params_bytes.append(recipient_bytes);
         params_bytes.append(amount_bytes);
-        params_bytes.append(opt_bytes);
+        params_bytes.append(otp_bytes);
         params_bytes.append(coin_type_bytes);
         
         let commit_hash = hash::sha2_256(params_bytes);
@@ -412,7 +412,7 @@ module tinypay::tinypay {
     /// Complete payment with specified coin type
     public entry fun complete_payment<CoinType>(
         caller: &signer,
-        opt: vector<u8>,
+        otp: vector<u8>,
         payer: address,
         recipient: address,
         amount: u64,
@@ -435,13 +435,13 @@ module tinypay::tinypay {
             let payer_bytes = bcs::to_bytes(&payer);
             let recipient_bytes = bcs::to_bytes(&recipient);
             let amount_bytes = bcs::to_bytes(&amount);
-            let opt_bytes = bcs::to_bytes(&opt);
+            let otp_bytes = bcs::to_bytes(&otp);
             let coin_type_bytes = bcs::to_bytes(&coin_type);
             
             params_bytes.append(payer_bytes);
             params_bytes.append(recipient_bytes);
             params_bytes.append(amount_bytes);
-            params_bytes.append(opt_bytes);
+            params_bytes.append(otp_bytes);
             params_bytes.append(coin_type_bytes);
 
             let computed_hash = hash::sha2_256(params_bytes);
@@ -452,10 +452,10 @@ module tinypay::tinypay {
             assert!(timestamp::now_seconds() <= precommit.expiry_time, E_INVALID_PRECOMMIT);
         };
 
-        // Verify opt against tail
+        // Verify otp against tail
         let user_account = borrow_global_mut<UserAccount>(payer);
-        let opt_hash_bytes = hash::sha2_256(opt);
-        let hex_ascii_bytes = bytes_to_hex_ascii(opt_hash_bytes);
+        let otp_hash_bytes = hash::sha2_256(otp);
+        let hex_ascii_bytes = bytes_to_hex_ascii(otp_hash_bytes);
         assert!(hex_ascii_bytes == user_account.tail, E_INVALID_OPT);
 
         // Check balance
@@ -474,7 +474,7 @@ module tinypay::tinypay {
 
         // Update user balance and tail
         *user_account.balances.borrow_mut(coin_type) = current_balance - amount;
-        user_account.tail = opt;
+        user_account.tail = otp;
         user_account.tail_update_count += 1;
 
         // Transfer coins to recipient
@@ -491,7 +491,7 @@ module tinypay::tinypay {
             coin_type: type_info::type_name<CoinType>(),
             amount,
             fee,
-            new_tail: opt,
+            new_tail: otp,
             timestamp: timestamp::now_seconds()
         });
     }

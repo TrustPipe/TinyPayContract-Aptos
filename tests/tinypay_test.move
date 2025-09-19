@@ -292,7 +292,7 @@ module tinypay::tinypay_test {
         let (_admin, user, merchant) = setup_test();
         let deposit_amount = 500000000; // 5 APT
         let payment_amount = 100000000; // 1 APT
-        let opt_value = b"test_opt_value";
+        let otp_value = b"test_otp_value";
         let tail = b"precommit_test";
 
         // First deposit to initialize account
@@ -304,7 +304,7 @@ module tinypay::tinypay_test {
             signer::address_of(&user),
             signer::address_of(&merchant),
             payment_amount,
-            opt_value
+            otp_value
         );
 
         // This test verifies that the precommit doesn't fail
@@ -457,7 +457,7 @@ module tinypay::tinypay_test {
         let (_admin, user, merchant) = setup_test_with_usdc();
         let deposit_amount = 5000000000; // 5,000 USDC
         let payment_amount = 1000000000; // 1,000 USDC
-        let opt_value = b"usdc_opt_value";
+        let otp_value = b"usdc_otp_value";
         let tail = b"usdc_precommit_test";
 
         // First deposit to initialize account
@@ -469,7 +469,7 @@ module tinypay::tinypay_test {
             signer::address_of(&user),
             signer::address_of(&merchant),
             payment_amount,
-            opt_value
+            otp_value
         );
 
         // This test verifies that the USDC precommit doesn't fail

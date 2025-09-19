@@ -141,29 +141,29 @@ module tinypay::tinypay_fa_test {
         tinypay_fa::deposit(payer, usdc_metadata, DEPOSIT_AMOUNT, initial_tail);
         
         // Create payment parameters
-        let opt = b"payment_opt";
-        let opt_hash = hash::sha2_256(opt);
-        let opt_hex = tinypay_fa::bytes_to_hex_ascii(opt_hash);
+        let otp = b"payment_opt";
+        let otp_hash = hash::sha2_256(otp);
+        let otp_hex = tinypay_fa::bytes_to_hex_ascii(otp_hash);
         
-        // Update user tail to match payment opt
-        tinypay_fa::refresh_tail(payer, opt_hex);
+        // Update user tail to match payment otp
+        tinypay_fa::refresh_tail(payer, otp_hex);
         
         // Merchant precommit
-        tinypay_fa::merchant_precommit(merchant, payer_addr, recipient_addr, PAYMENT_AMOUNT, usdc_metadata, opt);
+        tinypay_fa::merchant_precommit(merchant, payer_addr, recipient_addr, PAYMENT_AMOUNT, usdc_metadata, otp);
         
         // Generate commit hash
         let params_bytes = vector::empty<u8>();
         let payer_bytes = std::bcs::to_bytes(&payer_addr);
         let recipient_bytes = std::bcs::to_bytes(&recipient_addr);
         let amount_bytes = std::bcs::to_bytes(&PAYMENT_AMOUNT);
-        let opt_bytes = std::bcs::to_bytes(&opt);
+        let otp_bytes = std::bcs::to_bytes(&otp);
         let metadata_addr = object::object_address(&usdc_metadata);
         let metadata_bytes = std::bcs::to_bytes(&metadata_addr);
         
         params_bytes.append(payer_bytes);
         params_bytes.append(recipient_bytes);
         params_bytes.append(amount_bytes);
-        params_bytes.append(opt_bytes);
+        params_bytes.append(otp_bytes);
         params_bytes.append(metadata_bytes);
         
         let commit_hash = hash::sha2_256(params_bytes);
@@ -171,7 +171,7 @@ module tinypay::tinypay_fa_test {
         // Complete payment
         tinypay_fa::complete_payment(
             merchant,
-            opt,
+            otp,
             payer_addr,
             recipient_addr,
             PAYMENT_AMOUNT,
@@ -188,7 +188,7 @@ module tinypay::tinypay_fa_test {
         
         // Verify user tail updated
         let user_tail = tinypay_fa::get_user_tail(payer_addr);
-        assert!(user_tail == opt, 3);
+        assert!(user_tail == otp, 3);
     }
 
     #[test(admin = @tinypay, user1 = @0x100)]
@@ -281,11 +281,11 @@ module tinypay::tinypay_fa_test {
         let initial_tail = b"initial_tail";
         tinypay_fa::deposit(payer, usdc_metadata, DEPOSIT_AMOUNT, initial_tail);
         
-        // Create payment opt and set tail
-        let opt = b"paymaster_payment_opt";
-        let opt_hash = hash::sha2_256(opt);
-        let opt_hex = tinypay_fa::bytes_to_hex_ascii(opt_hash);
-        tinypay_fa::refresh_tail(payer, opt_hex);
+        // Create payment otp and set tail
+        let otp = b"paymaster_payment_opt";
+        let otp_hash = hash::sha2_256(otp);
+        let otp_hex = tinypay_fa::bytes_to_hex_ascii(otp_hash);
+        tinypay_fa::refresh_tail(payer, otp_hex);
         
         // Paymaster can complete payment without precommit (empty commit_hash)
         let empty_commit_hash = vector::empty<u8>();
@@ -293,7 +293,7 @@ module tinypay::tinypay_fa_test {
         // Complete payment as paymaster (admin is also paymaster by default)
         tinypay_fa::complete_payment(
             admin, // Using admin as paymaster
-            opt,
+            otp,
             payer_addr,
             recipient_addr,
             PAYMENT_AMOUNT,

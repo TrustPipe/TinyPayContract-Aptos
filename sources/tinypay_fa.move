@@ -3,17 +3,17 @@
 /// Allows users to deposit FA tokens, generate offline payment vouchers,
 /// and enables merchants to redeem those vouchers for token withdrawals.
 module tinypay::tinypay_fa {
+    use std::bcs;
+    use std::hash;
     use std::signer;
+    use std::vector;
     use aptos_std::table::{Self, Table};
+    use aptos_framework::account::{Self, SignerCapability};
+    use aptos_framework::event;
     use aptos_framework::fungible_asset::Metadata;
     use aptos_framework::object::{Self, Object};
     use aptos_framework::primary_fungible_store;
-    use aptos_framework::event;
     use aptos_framework::timestamp;
-    use aptos_framework::account::{Self, SignerCapability};
-    use std::bcs;
-    use std::vector;
-    use std::hash;
 
     // Error codes
     /// Insufficient balance for the requested operation
@@ -41,10 +41,14 @@ module tinypay::tinypay_fa {
 
     /// User account information storing balances for multiple FA tokens and tail
     struct UserAccount has key {
-        balances: Table<address, u64>, // Balances for different FA tokens (keyed by metadata object address)
-        tail: vector<u8>, // Current tail hash value (SHA256 bytes)
-        payment_limit: u64, // Maximum payment amount per transaction (0 = unlimited)
-        tail_update_count: u64, // Number of times tail has been updated
+        balances: Table<address, u64>,
+        // Balances for different FA tokens (keyed by metadata object address)
+        tail: vector<u8>,
+        // Current tail hash value (SHA256 bytes)
+        payment_limit: u64,
+        // Maximum payment amount per transaction (0 = unlimited)
+        tail_update_count: u64,
+        // Number of times tail has been updated
         max_tail_updates: u64 // Maximum allowed tail updates (0 = unlimited)
     }
 
@@ -57,9 +61,12 @@ module tinypay::tinypay_fa {
 
     /// Global state for the TinyPay FA system
     struct TinyPayState has key {
-        total_deposits: Table<address, u64>, // Total deposits per FA type (keyed by metadata address)
-        total_withdrawals: Table<address, u64>, // Total withdrawals per FA type
-        fee_rate: u64, // Fee rate in basis points (e.g., 100 = 1%)
+        total_deposits: Table<address, u64>,
+        // Total deposits per FA type (keyed by metadata address)
+        total_withdrawals: Table<address, u64>,
+        // Total withdrawals per FA type
+        fee_rate: u64,
+        // Fee rate in basis points (e.g., 100 = 1%)
         admin: address,
         paymaster: address,
         signer_cap: SignerCapability,
@@ -154,39 +161,39 @@ module tinypay::tinypay_fa {
         recipient: address,
         amount: u64,
         asset_metadata: Object<Metadata>,
-        opt: vector<u8>
+        otp: vector<u8>
     ) acquires TinyPayState {
         let merchant_addr = signer::address_of(merchant);
         let admin_addr = get_admin_address();
         let state = borrow_global_mut<TinyPayState>(admin_addr);
         let metadata_addr = object::object_address(&asset_metadata);
-        
+
         // Check if asset is supported
         assert!(state.supported_assets.contains(metadata_addr), E_ASSET_NOT_SUPPORTED);
-        
+
         // Generate commit hash from payment parameters
         let params_bytes = vector::empty<u8>();
         let payer_bytes = bcs::to_bytes(&payer);
         let recipient_bytes = bcs::to_bytes(&recipient);
         let amount_bytes = bcs::to_bytes(&amount);
-        let opt_bytes = bcs::to_bytes(&opt);
+        let otp_bytes = bcs::to_bytes(&otp);
         let metadata_bytes = bcs::to_bytes(&metadata_addr);
-        
+
         params_bytes.append(payer_bytes);
         params_bytes.append(recipient_bytes);
         params_bytes.append(amount_bytes);
-        params_bytes.append(opt_bytes);
+        params_bytes.append(otp_bytes);
         params_bytes.append(metadata_bytes);
-        
+
         let commit_hash = hash::sha2_256(params_bytes);
         let expiry_time = timestamp::now_seconds() + 900; // 15 minutes
-        
+
         // Store pre-commit
         state.precommits.add(commit_hash, PreCommit {
             merchant: merchant_addr,
             expiry_time
         });
-        
+
         event::emit(PreCommitMade {
             merchant_address: merchant_addr,
             commit_hash,
@@ -202,11 +209,11 @@ module tinypay::tinypay_fa {
     ) acquires UserAccount {
         let user_addr = signer::address_of(user);
         assert!(exists<UserAccount>(user_addr), E_ACCOUNT_NOT_INITIALIZED);
-        
+
         let user_account = borrow_global_mut<UserAccount>(user_addr);
         let old_limit = user_account.payment_limit;
         user_account.payment_limit = limit;
-        
+
         event::emit(PaymentLimitUpdated {
             user_address: user_addr,
             old_limit,
@@ -222,11 +229,11 @@ module tinypay::tinypay_fa {
     ) acquires UserAccount {
         let user_addr = signer::address_of(user);
         assert!(exists<UserAccount>(user_addr), E_ACCOUNT_NOT_INITIALIZED);
-        
+
         let user_account = borrow_global_mut<UserAccount>(user_addr);
         let old_limit = user_account.max_tail_updates;
         user_account.max_tail_updates = limit;
-        
+
         event::emit(TailUpdatesLimitSet {
             user_address: user_addr,
             old_limit,
@@ -242,18 +249,18 @@ module tinypay::tinypay_fa {
     ) acquires UserAccount {
         let user_addr = signer::address_of(user);
         assert!(exists<UserAccount>(user_addr), E_ACCOUNT_NOT_INITIALIZED);
-        
+
         let user_account = borrow_global_mut<UserAccount>(user_addr);
-        
+
         // Check tail update limit
         if (user_account.max_tail_updates > 0) {
             assert!(user_account.tail_update_count < user_account.max_tail_updates, E_TAIL_UPDATES_LIMIT_EXCEEDED);
         };
-        
+
         let old_tail = user_account.tail;
         user_account.tail = new_tail;
         user_account.tail_update_count += 1;
-        
+
         event::emit(TailRefreshed {
             user_address: user_addr,
             old_tail,
@@ -305,7 +312,7 @@ module tinypay::tinypay_fa {
 
     /// Admin function to add support for a new FA type
     public entry fun add_asset_support(
-        admin: &signer, 
+        admin: &signer,
         asset_metadata: Object<Metadata>
     ) acquires TinyPayState {
         let admin_addr = signer::address_of(admin);
@@ -332,9 +339,9 @@ module tinypay::tinypay_fa {
 
     /// Deposit FA tokens into user's TinyPay account
     public entry fun deposit(
-        user: &signer, 
+        user: &signer,
         asset_metadata: Object<Metadata>,
-        amount: u64, 
+        amount: u64,
         tail: vector<u8>
     ) acquires UserAccount, TinyPayState {
         assert!(amount > 0, E_INVALID_AMOUNT);
@@ -348,6 +355,7 @@ module tinypay::tinypay_fa {
 
         // Auto-initialize user account if needed
         if (!exists<UserAccount>(user_addr)) {
+            assert!(tail.length() > 0, E_INVALID_TAIL);
             move_to(user, UserAccount {
                 balances: table::new(),
                 tail: vector::empty<u8>(),
@@ -381,7 +389,7 @@ module tinypay::tinypay_fa {
         // Update global state
         let admin_addr = get_admin_address();
         let state = borrow_global_mut<TinyPayState>(admin_addr);
-        *state.total_deposits.borrow_mut(metadata_addr) = 
+        *state.total_deposits.borrow_mut(metadata_addr) =
             *state.total_deposits.borrow(metadata_addr) + amount;
 
         event::emit(DepositMade {
@@ -397,7 +405,7 @@ module tinypay::tinypay_fa {
     /// Complete payment with specified FA type
     public entry fun complete_payment(
         caller: &signer,
-        opt: vector<u8>,
+        otp: vector<u8>,
         payer: address,
         recipient: address,
         amount: u64,
@@ -421,13 +429,13 @@ module tinypay::tinypay_fa {
             let payer_bytes = bcs::to_bytes(&payer);
             let recipient_bytes = bcs::to_bytes(&recipient);
             let amount_bytes = bcs::to_bytes(&amount);
-            let opt_bytes = bcs::to_bytes(&opt);
+            let otp_bytes = bcs::to_bytes(&otp);
             let metadata_bytes = bcs::to_bytes(&metadata_addr);
-            
+
             params_bytes.append(payer_bytes);
             params_bytes.append(recipient_bytes);
             params_bytes.append(amount_bytes);
-            params_bytes.append(opt_bytes);
+            params_bytes.append(otp_bytes);
             params_bytes.append(metadata_bytes);
 
             let computed_hash = hash::sha2_256(params_bytes);
@@ -438,10 +446,10 @@ module tinypay::tinypay_fa {
             assert!(timestamp::now_seconds() <= precommit.expiry_time, E_INVALID_PRECOMMIT);
         };
 
-        // Verify opt against tail
+        // Verify otp against tail
         let user_account = borrow_global_mut<UserAccount>(payer);
-        let opt_hash_bytes = hash::sha2_256(opt);
-        let hex_ascii_bytes = bytes_to_hex_ascii(opt_hash_bytes);
+        let otp_hash_bytes = hash::sha2_256(otp);
+        let hex_ascii_bytes = bytes_to_hex_ascii(otp_hash_bytes);
         assert!(hex_ascii_bytes == user_account.tail, E_INVALID_OPT);
 
         // Check balance
@@ -460,14 +468,14 @@ module tinypay::tinypay_fa {
 
         // Update user balance and tail
         *user_account.balances.borrow_mut(metadata_addr) = current_balance - amount;
-        user_account.tail = opt;
+        user_account.tail = otp;
         user_account.tail_update_count += 1;
 
         // Transfer FA tokens to recipient from vault
         let vault_signer = account::create_signer_with_capability(&state.signer_cap);
         primary_fungible_store::transfer(&vault_signer, asset_metadata, recipient, recipient_amount);
 
-        *state.total_withdrawals.borrow_mut(metadata_addr) = 
+        *state.total_withdrawals.borrow_mut(metadata_addr) =
             *state.total_withdrawals.borrow(metadata_addr) + amount;
 
         event::emit(PaymentCompleted {
@@ -476,14 +484,14 @@ module tinypay::tinypay_fa {
             asset_metadata: metadata_addr,
             amount,
             fee,
-            new_tail: opt,
+            new_tail: otp,
             timestamp: timestamp::now_seconds()
         });
     }
 
     /// Withdraw funds back to user's wallet
     public entry fun withdraw_funds(
-        user: &signer, 
+        user: &signer,
         asset_metadata: Object<Metadata>,
         amount: u64
     ) acquires UserAccount, TinyPayState {
@@ -512,7 +520,7 @@ module tinypay::tinypay_fa {
 
         let admin_addr = get_admin_address();
         let state = borrow_global_mut<TinyPayState>(admin_addr);
-        *state.total_withdrawals.borrow_mut(metadata_addr) = 
+        *state.total_withdrawals.borrow_mut(metadata_addr) =
             *state.total_withdrawals.borrow(metadata_addr) + amount;
 
         event::emit(FundsWithdrawn {
@@ -552,7 +560,7 @@ module tinypay::tinypay_fa {
         if (!exists<UserAccount>(user_address)) {
             return (0, 0, 0)
         };
-        
+
         let user_account = borrow_global<UserAccount>(user_address);
         (user_account.payment_limit, user_account.tail_update_count, user_account.max_tail_updates)
     }
@@ -562,7 +570,7 @@ module tinypay::tinypay_fa {
         if (!exists<UserAccount>(user_address)) {
             return vector::empty<u8>()
         };
-        
+
         let user_account = borrow_global<UserAccount>(user_address);
         user_account.tail
     }
@@ -572,7 +580,7 @@ module tinypay::tinypay_fa {
         let admin_addr = get_admin_address();
         let state = borrow_global<TinyPayState>(admin_addr);
         let metadata_addr = object::object_address(&asset_metadata);
-        
+
         let total_deposits = if (state.total_deposits.contains(metadata_addr)) {
             *state.total_deposits.borrow(metadata_addr)
         } else {
@@ -583,7 +591,7 @@ module tinypay::tinypay_fa {
         } else {
             0
         };
-        
+
         (total_deposits, total_withdrawals, state.fee_rate)
     }
 }
