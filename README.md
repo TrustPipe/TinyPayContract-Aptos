@@ -1,16 +1,18 @@
-# TinyPay - Aptos离线支付系统
+# TinyPay - Multi-Coin Offline Payment System on Aptos
 
-一个基于Aptos区块链的离线支付解决方案，为商户和用户提供安全、便捷的单向离线支付功能。
+A comprehensive offline payment solution built on the Aptos blockchain, supporting multiple cryptocurrencies for secure and convenient offline transactions between merchants and users.
 
 ## 🎯 Overview
 
-TinyPay是一个创新的离线支付系统，解决了区块链支付在网络受限环境下的使用难题。系统的核心功能包括：
+TinyPay is an innovative offline payment system that solves the challenge of blockchain payments in network-constrained environments. The system now supports multiple coin types and includes:
 
-- **用户存款管理**：用户将APT存入智能合约，系统维护个人余额
-- **离线凭证生成**：用户可以离线生成包含金额和过期时间的支付凭证
-- **商户资金提取**：商户验证凭证有效性并提取对应资金
-- **防重放攻击**：每个凭证都有唯一ID，确保只能使用一次
-- **手续费机制**：系统收取1%的交易手续费（可由管理员调整）
+- **Multi-Coin Support**: Support for APT, USDC, and other custom tokens
+- **User Deposit Management**: Users can deposit various cryptocurrencies into smart contracts
+- **Offline Payment Generation**: Users can generate offline payment credentials with amounts and expiry times
+- **Merchant Fund Extraction**: Merchants can verify credentials and extract corresponding funds
+- **Anti-Replay Protection**: Each credential has a unique ID ensuring single-use only
+- **Dynamic Fee System**: Configurable transaction fees (default 1%, adjustable by admin)
+- **Secure Hash Chain**: Uses iterative SHA256 hashing for payment verification
 
 ## 🏗️ Architecture
 
@@ -19,48 +21,64 @@ TinyPay是一个创新的离线支付系统，解决了区块链支付在网络�
 #### UserAccount
 ```move
 struct UserAccount has key {
-    balance: u64,                            // 可用APT余额（以octas为单位）
-    used_vouchers: Table<String, VoucherInfo>, // 已使用凭证追踪
-    nonce: u64,                             // 凭证生成随机数
-}
-```
-
-#### VoucherInfo  
-```move
-struct VoucherInfo has store, drop {
-    amount: u64,        // 凭证金额
-    expiry_time: u64,   // 过期时间
-    is_redeemed: bool,  // 是否已兑现
+    balances: Table<TypeInfo, u64>,           // Multi-coin balances by type
+    tail_hashes: Table<TypeInfo, vector<u8>>, // Payment tail hashes per coin type
+    payment_limits: Table<TypeInfo, u64>,     // Payment limits per coin type
+    tail_update_limits: Table<TypeInfo, u64>, // Tail update limits per coin type
+    tail_update_counts: Table<TypeInfo, u64>, // Current tail update counts
 }
 ```
 
 #### TinyPayState
 ```move
 struct TinyPayState has key {
-    total_deposits: u64,        // 系统总存款
-    total_withdrawals: u64,     // 系统总提取
-    fee_rate: u64,             // 手续费率（基点）
-    admin: address,            // 管理员地址
-    signer_cap: SignerCapability, // 签名权限
+    admin: address,                           // Admin address
+    paymaster: address,                       // Paymaster address for fee-free operations
+    fee_rate: u64,                           // Fee rate in basis points (default: 100 = 1%)
+    supported_coins: Table<TypeInfo, bool>,   // Supported coin types
+    total_deposits: Table<TypeInfo, u64>,     // Total deposits per coin type
+    total_withdrawals: Table<TypeInfo, u64>,  // Total withdrawals per coin type
+    precommits: Table<vector<u8>, PrecommitInfo>, // Merchant precommit storage
+    signer_cap: SignerCapability,            // Resource account signer capability
+}
+```
+
+#### PrecommitInfo
+```move
+struct PrecommitInfo has store, drop {
+    payer: address,        // Payment sender
+    recipient: address,    // Payment recipient
+    amount: u64,          // Payment amount
+    coin_type: TypeInfo,  // Coin type for payment
+    expiry_time: u64,     // Precommit expiry timestamp
 }
 ```
 
 ### Public Entry Functions
 
-- `initialize_account(user: &signer)` - 初始化用户账户
-- `deposit(user: &signer, amount: u64)` - 存款APT到系统
-- `generate_voucher(user: &signer, amount: u64, expiry_seconds: u64)` - 生成支付凭证
-- `redeem_voucher(merchant: &signer, user_address: address, voucher_id: String)` - 商户兑现凭证
-- `cancel_voucher(user: &signer, voucher_id: String)` - 用户取消未使用凭证
-- `update_fee_rate(admin: &signer, new_fee_rate: u64)` - 管理员更新手续费
+#### Core Functions
+- `add_coin_support<CoinType>(admin: &signer)` - Add support for a new coin type
+- `deposit<CoinType>(user: &signer, amount: u64, tail: vector<u8>)` - Deposit coins with tail hash
+- `withdraw_funds<CoinType>(user: &signer, amount: u64)` - Withdraw funds from account
+- `refresh_tail<CoinType>(user: &signer, new_tail: vector<u8>)` - Update payment tail hash
+
+#### Payment Functions
+- `merchant_precommit<CoinType>(merchant: &signer, payer: address, recipient: address, amount: u64, opt: vector<u8>)` - Merchant precommit for payment
+- `complete_payment<CoinType>(caller: &signer, opt: vector<u8>, payer: address, recipient: address, amount: u64, commit_hash: vector<u8>)` - Complete offline payment
+
+#### Admin Functions
+- `set_fee_rate(admin: &signer, new_fee_rate: u64)` - Update system fee rate
+- `set_payment_limit<CoinType>(user: &signer, limit: u64)` - Set payment limit for coin type
+- `set_tail_updates_limit<CoinType>(user: &signer, limit: u64)` - Set tail update limit
 
 ### View Functions
 
-- `get_balance(user_address: address): u64` - 查询用户余额
-- `get_voucher_info(user_address: address, voucher_id: String): (bool, u64, u64, bool)` - 查询凭证信息
-- `get_system_stats(): (u64, u64, u64)` - 查询系统统计信息
-- `is_account_initialized(user_address: address): bool` - 检查账户是否已初始化
-- `get_vault_address(): address` - 获取资金库地址
+- `get_balance<CoinType>(user_address: address): u64` - Query user balance for specific coin
+- `get_user_tail<CoinType>(user_address: address): vector<u8>` - Get user's current tail hash
+- `get_user_limits<CoinType>(user_address: address): (u64, u64, u64)` - Get user limits and counts
+- `is_coin_supported<CoinType>(): bool` - Check if coin type is supported
+- `get_system_stats<CoinType>(): (u64, u64)` - Get system deposit/withdrawal statistics
+- `bytes_to_hex_ascii(bytes: vector<u8>): vector<u8>` - Convert bytes to hex ASCII representation
 
 ## 🚀 Quick Start
 
@@ -102,159 +120,238 @@ aptos move publish --profile testnet
 
 ## 📋 Usage Examples
 
-### 1. 初始化账户
+### 1. Add Support for New Coin Type
 ```bash
-aptos move run --function-id <CONTRACT_ADDRESS>::tinypay::initialize_account --profile testnet
+# Add USDC support (admin only)
+aptos move run --function-id <CONTRACT_ADDRESS>::tinypay::add_coin_support \
+  --type-args <CONTRACT_ADDRESS>::test_usdc::TestUSDC --profile testnet
 ```
 
-### 2. 存款APT
+### 2. Deposit Coins
 ```bash
-# 存入1 APT (100000000 octas)
+# Deposit 1000 USDC (6 decimals = 1000000000 units)
 aptos move run --function-id <CONTRACT_ADDRESS>::tinypay::deposit \
-  --args u64:100000000 --profile testnet
+  --type-args <CONTRACT_ADDRESS>::test_usdc::TestUSDC \
+  --args u64:1000000000 "u8:[97,100,98,54,...]" --profile testnet
+
+# Deposit 1 APT (8 decimals = 100000000 octas)
+aptos move run --function-id <CONTRACT_ADDRESS>::tinypay::deposit \
+  --type-args 0x1::aptos_coin::AptosCoin \
+  --args u64:100000000 "u8:[97,100,98,54,...]" --profile testnet
 ```
 
-### 3. 生成支付凭证
+### 3. Generate Payment Hash Chain
 ```bash
-# 生成0.5 APT的凭证，有效期1小时
-aptos move run --function-id <CONTRACT_ADDRESS>::tinypay::generate_voucher \
-  --args u64:50000000 u64:3600 --profile testnet
+# Use the provided Python script to generate opt/tail parameters
+python3 scripts/complete_workflow.py "HelloAptosKS" -n 1000
 ```
 
-### 4. 商户兑现凭证
+### 4. Merchant Precommit
 ```bash
-# 从事件日志中获取voucher_id，然后兑现
-aptos move run --function-id <CONTRACT_ADDRESS>::tinypay::redeem_voucher \
-  --args address:0x<USER_ADDRESS> string:"voucher_<ID>" --profile testnet
+# Merchant precommits to a payment
+aptos move run --function-id <CONTRACT_ADDRESS>::tinypay::merchant_precommit \
+  --type-args <CONTRACT_ADDRESS>::test_usdc::TestUSDC \
+  --args address:0x<PAYER> address:0x<RECIPIENT> u64:10000000 "u8:[56,52,101,...]" --profile testnet
 ```
 
-### 5. 查询余额
+### 5. Complete Payment
 ```bash
+# Complete the offline payment (as paymaster or with valid precommit)
+aptos move run --function-id <CONTRACT_ADDRESS>::tinypay::complete_payment \
+  --type-args <CONTRACT_ADDRESS>::test_usdc::TestUSDC \
+  --args "u8:[56,52,101,...]" address:0x<PAYER> address:0x<RECIPIENT> u64:10000000 "u8:[0]" --profile testnet
+```
+
+### 6. Query Balances
+```bash
+# Check USDC balance
 aptos move view --function-id <CONTRACT_ADDRESS>::tinypay::get_balance \
+  --type-args <CONTRACT_ADDRESS>::test_usdc::TestUSDC \
   --args address:0x<USER_ADDRESS>
+
+# Check APT balance
+aptos move view --function-id <CONTRACT_ADDRESS>::tinypay::get_balance \
+  --type-args 0x1::aptos_coin::AptosCoin \
+  --args address:0x<USER_ADDRESS>
+```
+
+### 7. Withdraw Funds
+```bash
+# Withdraw 500 USDC
+aptos move run --function-id <CONTRACT_ADDRESS>::tinypay::withdraw_funds \
+  --type-args <CONTRACT_ADDRESS>::test_usdc::TestUSDC \
+  --args u64:500000000 --profile testnet
 ```
 
 
 ## 🔒 Security Features
 
-- **凭证唯一性**：每个凭证都有唯一ID，防止重复使用
-- **时效性控制**：凭证设有过期时间，降低安全风险
-- **余额检查**：生成凭证时验证用户余额充足
-- **权限控制**：只有管理员可以修改手续费率
-- **资金隔离**：使用resource account管理系统资金
+- **Hash Chain Verification**: Uses iterative SHA256 hashing for secure payment verification
+- **Multi-Coin Isolation**: Each coin type has separate balance and limit management
+- **Payment Limits**: Configurable payment limits per coin type to prevent large unauthorized transactions
+- **Tail Update Limits**: Restricts frequency of tail hash updates to prevent abuse
+- **Balance Verification**: All operations verify sufficient balance before execution
+- **Admin Controls**: Only admin can add new coin support and modify system parameters
+- **Paymaster System**: Designated paymaster can execute fee-free operations
+- **Resource Account**: Uses resource account for secure fund management and isolation
 
 ## 🧪 Testing
 
-项目包含全面的测试用例，覆盖以下场景：
+The project includes comprehensive test coverage for:
 
-- ✅ 账户初始化和存款功能
-- ✅ 凭证生成和兑现流程
-- ✅ 凭证取消和余额恢复
-- ✅ 错误场景处理（余额不足、重复使用等）
-- ✅ 管理员功能（手续费调整）
-- ✅ 系统统计查询
+- ✅ Multi-coin deposit and withdrawal functionality
+- ✅ Hash chain generation and verification
+- ✅ Payment limit enforcement
+- ✅ Merchant precommit and payment completion flows
+- ✅ Error handling (insufficient balance, unsupported coins, etc.)
+- ✅ Admin functions (fee adjustment, coin support)
+- ✅ USDC integration and mixed coin operations
+- ✅ System statistics and balance queries
 
-运行测试：
+Run tests:
 ```bash
-aptos move test --dev --skip-fetch-latest-git-deps
+# Run all tests
+aptos move test --skip-fetch-latest-git-deps
+
+# Run specific test suites
+aptos move test --filter usdc --skip-fetch-latest-git-deps
+aptos move test --filter mixed --skip-fetch-latest-git-deps
 ```
 
 ## 📁 Project Structure
 
 ```
-├── Move.toml                    # 包配置文件
+├── Move.toml                    # Package configuration
 ├── sources/
-│   └── tinypay.move            # 主合约实现
+│   ├── tinypay.move            # Main TinyPay contract
+│   └── test_usdc.move          # Test USDC token implementation
 ├── tests/
-│   └── tinypay_test.move       # 综合单元测试
+│   └── tinypay_test.move       # Comprehensive unit tests
 ├── scripts/
-│   └── deploy.sh               # 部署脚本
-└── README.md                   # 项目文档
+│   ├── deploy.sh               # Deployment script
+│   ├── complete_workflow.py    # Payment workflow generator
+│   ├── hex_to_ascii_bytes.py   # Utility for hex conversion
+│   ├── setup_usdc.py           # USDC setup automation
+│   └── usdc_demo.py            # USDC functionality demo
+├── docs/
+│   ├── usdc_integration.md     # USDC integration guide
+│   ├── usdc_summary.md         # Multi-coin feature summary
+│   └── migration_guide.md      # Migration documentation
+├── examples/
+│   └── usdc_integration_example.md # Usage examples
+└── README.md                   # Project documentation
 ```
 
 ## 🎯 Error Codes
 
-| Code | 常量 | 描述 |
-|------|------|------|
-| 1 | `E_INSUFFICIENT_BALANCE` | 余额不足 |
-| 2 | `E_INVALID_AMOUNT` | 无效金额 |
-| 3 | `E_VOUCHER_ALREADY_USED` | 凭证已使用 |
-| 5 | `E_ACCOUNT_NOT_INITIALIZED` | 账户未初始化 |
-| 6 | `E_VOUCHER_EXPIRED` | 凭证已过期 |
-| 7 | `E_INVALID_VOUCHER_ID` | 无效凭证ID |
-| 8 | `E_NOT_ADMIN` | 不是管理员 |
+| Code | Constant | Description |
+|------|----------|-------------|
+| 1 | `E_INSUFFICIENT_BALANCE` | Insufficient balance |
+| 2 | `E_INVALID_AMOUNT` | Invalid amount |
+| 3 | `E_ACCOUNT_ALREADY_INITIALIZED` | Account already initialized |
+| 4 | `E_INVALID_TAIL_HASH` | Invalid tail hash |
+| 5 | `E_ACCOUNT_NOT_INITIALIZED` | Account not initialized |
+| 6 | `E_PAYMENT_LIMIT_EXCEEDED` | Payment limit exceeded |
+| 7 | `E_TAIL_UPDATE_LIMIT_EXCEEDED` | Tail update limit exceeded |
+| 8 | `E_NOT_ADMIN` | Not admin |
+| 9 | `E_INVALID_PRECOMMIT` | Invalid precommit |
+| 10 | `E_COIN_NOT_SUPPORTED` | Coin type not supported |
+| 11 | `E_COIN_ALREADY_SUPPORTED` | Coin type already supported |
 
 ## 📊 Events
-
-### AccountInitialized
-```move
-struct AccountInitialized has drop, store {
-    user_address: address,
-}
-```
 
 ### DepositMade
 ```move
 struct DepositMade has drop, store {
     user_address: address,
+    coin_type: String,
+    amount: u64,
+    tail: vector<u8>,
+    new_balance: u64,
+    timestamp: u64,
+}
+```
+
+### WithdrawalMade
+```move
+struct WithdrawalMade has drop, store {
+    user_address: address,
+    coin_type: String,
     amount: u64,
     new_balance: u64,
     timestamp: u64,
 }
 ```
 
-### VoucherGenerated
+### PaymentCompleted
 ```move
-struct VoucherGenerated has drop, store {
-    user_address: address,
-    voucher_id: String,
-    amount: u64,
-    expiry_time: u64,
-}
-```
-
-### VoucherRedeemed
-```move
-struct VoucherRedeemed has drop, store {
-    user_address: address,
-    merchant_address: address,
-    voucher_id: String,
+struct PaymentCompleted has drop, store {
+    payer: address,
+    recipient: address,
+    coin_type: String,
     amount: u64,
     fee: u64,
+    opt: vector<u8>,
     timestamp: u64,
 }
 ```
 
+### TailUpdated
+```move
+struct TailUpdated has drop, store {
+    user_address: address,
+    coin_type: String,
+    new_tail: vector<u8>,
+    timestamp: u64,
+}
+```
+
+## 🪙 Supported Tokens
+
+### Native APT
+- **Type**: `0x1::aptos_coin::AptosCoin`
+- **Decimals**: 8
+- **Unit**: octas (1 APT = 100,000,000 octas)
+
+### Test USDC
+- **Type**: `<CONTRACT_ADDRESS>::test_usdc::TestUSDC`
+- **Decimals**: 6
+- **Unit**: micro-USDC (1 USDC = 1,000,000 units)
+- **Features**: Mint, burn, transfer, batch operations
+
+### Adding New Tokens
+To add support for additional tokens:
+1. Implement the token contract following Aptos Coin standard
+2. Call `add_coin_support<NewCoinType>()` as admin
+3. Users can then deposit/withdraw the new token type
+
 ## 🔮 Future Enhancements
 
-- **数字签名验证**：添加离线签名验证机制提高安全性
-- **批量操作**：支持批量生成和兑现凭证
-- **多币种支持**：扩展支持其他代币类型
-- **动态手续费**：根据网络状况自动调整手续费
-- **凭证转账**：允许凭证在用户间转移
-- **商户白名单**：建立可信商户验证机制
+- **Digital Signature Verification**: Add offline signature verification for enhanced security
+- **Batch Operations**: Support batch payment processing and bulk operations
+- **Cross-Chain Bridge**: Enable cross-chain token transfers and payments
+- **Dynamic Fee Structure**: Implement network-based dynamic fee adjustment
+- **Mobile SDK**: Develop mobile SDKs for iOS and Android integration
+- **Merchant Dashboard**: Build web interface for merchant payment management
+- **Advanced Analytics**: Add comprehensive payment analytics and reporting
 
 ## 🤝 Contributing
 
-欢迎贡献代码和提出改进建议！请遵循以下步骤：
+We welcome contributions and suggestions! Please follow these steps:
 
-1. Fork 本项目
-2. 创建功能分支 (`git checkout -b feature/AmazingFeature`)
-3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
-4. 推送到分支 (`git push origin feature/AmazingFeature`)
-5. 打开 Pull Request
+1. Fork the project
+2. Create a feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
 
-## 📄 License
+## 📞 Contact
 
-本项目采用 MIT 许可证 - 详情请见 [LICENSE](LICENSE) 文件。
+For questions or suggestions, please reach out through:
 
-## 📞 联系方式
-
-如有问题或建议，请通过以下方式联系：
-
-- 项目 Issues: [GitHub Issues](https://github.com/your-username/tinypay/issues)
-- 邮箱: your-email@example.com
+- Project Issues: [GitHub Issues](https://github.com/TrustPipe/TinyPayContract-Aptos/issues)
+- Documentation: Check the `/docs` folder for detailed guides
 
 ---
 
-**TinyPay** - 让区块链支付无处不在 🚀
+**TinyPay** - Making blockchain payments accessible everywhere 🚀
