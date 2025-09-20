@@ -1,6 +1,3 @@
-/// A 2-in-1 module that combines managed_fungible_asset and coin_example into one module that when deployed, the
-/// deployer will be creating a new managed fungible asset with the hardcoded supply config, name, symbol, and decimals.
-/// The address of the asset can be obtained via get_metadata(). As a simple version, it only deals with primary stores.
 module tinypay::usdc {
     use aptos_framework::fungible_asset::{Self, MintRef, TransferRef, BurnRef, Metadata, FungibleAsset};
     use aptos_framework::object::{Self, Object};
@@ -17,7 +14,7 @@ module tinypay::usdc {
     /// The FA coin is paused.
     const EPAUSED: u64 = 2;
 
-    const ASSET_SYMBOL: vector<u8> = b"FA";
+    const ASSET_SYMBOL: vector<u8> = b"TUSDC";
 
     #[resource_group_member(group = aptos_framework::object::ObjectGroup)]
     /// Hold refs to control the minting, transfer and burning of fungible assets.
@@ -41,7 +38,7 @@ module tinypay::usdc {
         primary_fungible_store::create_primary_store_enabled_fungible_asset(
             constructor_ref,
             option::none(),
-            utf8(b"FA Coin"), /* name */
+            utf8(b"TinyPay USDC"), /* name */
             utf8(ASSET_SYMBOL), /* symbol */
             8, /* decimals */
             utf8(b"http://example.com/favicon.ico"), /* icon */

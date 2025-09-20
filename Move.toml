@@ -4,10 +4,10 @@ version = "1.0.0"
 authors = ["dev"]
 
 [addresses]
-tinypay = "_"
+tinypay = "5877584f4dbd72b5d101f32be3bea1eb67e96020ded3943919ddc80927c88893"
 
 [dev-addresses]
-tinypay = "0xaadbf0681ef3dc9decd123340db16954f85319853533ed4ace6ec5d11aaad190"
+tinypay = "5877584f4dbd72b5d101f32be3bea1eb67e96020ded3943919ddc80927c88893"
 
 [dependencies.AptosFramework]
 git = "https://github.com/aptos-labs/aptos-framework.git"
