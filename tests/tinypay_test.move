@@ -141,7 +141,7 @@ module tinypay::tinypay_test {
         tinypay::deposit(payer, usdc_metadata, DEPOSIT_AMOUNT, initial_tail);
 
         // Create payment parameters
-        let otp = b"payment_opt";
+        let otp = b"payment_otp";
         let otp_hash = hash::sha2_256(otp);
         let otp_hex = tinypay::bytes_to_hex_ascii(otp_hash);
 
@@ -282,7 +282,7 @@ module tinypay::tinypay_test {
         tinypay::deposit(payer, usdc_metadata, DEPOSIT_AMOUNT, initial_tail);
 
         // Create payment otp and set tail
-        let otp = b"paymaster_payment_opt";
+        let otp = b"paymaster_payment_otp";
         let otp_hash = hash::sha2_256(otp);
         let otp_hex = tinypay::bytes_to_hex_ascii(otp_hash);
         tinypay::refresh_tail(payer, otp_hex);

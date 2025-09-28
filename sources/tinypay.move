@@ -24,8 +24,8 @@ module tinypay::tinypay {
     const E_ACCOUNT_NOT_INITIALIZED: u64 = 3;
     /// Invalid tail value provided
     const E_INVALID_TAIL: u64 = 4;
-    /// Invalid operation type provided
-    const E_INVALID_OPT: u64 = 5;
+    /// Invalid OTP provided
+    const E_INVALID_OTP: u64 = 5;
     /// Invalid precommit value provided
     const E_INVALID_PRECOMMIT: u64 = 6;
     /// Only admin can perform this operation
@@ -450,7 +450,7 @@ module tinypay::tinypay {
         let user_account = borrow_global_mut<UserAccount>(payer);
         let otp_hash_bytes = hash::sha2_256(otp);
         let hex_ascii_bytes = bytes_to_hex_ascii(otp_hash_bytes);
-        assert!(hex_ascii_bytes == user_account.tail, E_INVALID_OPT);
+        assert!(hex_ascii_bytes == user_account.tail, E_INVALID_OTP);
 
         // Check balance
         assert!(user_account.balances.contains(metadata_addr), E_INSUFFICIENT_BALANCE);

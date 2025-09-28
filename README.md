@@ -266,7 +266,7 @@ aptos move test --filter test_payment --profile testnet
 | 2 | `E_INVALID_AMOUNT` | Invalid amount provided (must be greater than 0) |
 | 3 | `E_ACCOUNT_NOT_INITIALIZED` | User account has not been initialized |
 | 4 | `E_INVALID_TAIL` | Invalid tail value provided |
-| 5 | `E_INVALID_OPT` | Invalid operation type provided |
+| 5 | `E_INVALID_OTP` | Invalid operation type provided |
 | 6 | `E_INVALID_PRECOMMIT` | Invalid precommit value provided |
 | 7 | `E_NOT_ADMIN` | Only admin can perform this operation |
 | 8 | `E_PAYMENT_LIMIT_EXCEEDED` | Payment amount exceeds the configured limit |
